@@ -1,0 +1,10 @@
+# Backup files (no longer needed with git)
+*_backup_*
+
+# Empty placeholder files
+global-copilot-instructions.md
+global-git-commit-instructions.md
+
+# MCP config (contains local paths/secrets)
+mcp.json
+
