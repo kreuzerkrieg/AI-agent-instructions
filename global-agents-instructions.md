@@ -9,12 +9,13 @@ When creating **any** temporary or scratch files — analysis docs, migration ca
 ```
 Create the directory if it does not exist. **Never** place such files inside the repository working tree. This applies even when the user asks you to "build a table" or "save the results" — always default to the scratches directory unless the user explicitly specifies a different path.
 
-## Backup Before Editing Non-Repo Config Files
-This global instructions file (`~/.config/github-copilot/intellij/global-agents-instructions.md`) is **not under source control**. Before making **any** edit to it, create a timestamped backup in the same directory:
+## Version Control for Instruction Files
+The instruction files directory (`~/.config/github-copilot/intellij/`) is a git repository tracked at `git@github.com:kreuzerkrieg/AI-agent-instructions.git`. **After making any edit** to files in this directory, commit and push the change:
 ```bash
-cp "<file>" "<file>_backup_$(date +%Y%m%d_%H%M%S)"
+cd ~/.config/github-copilot/intellij
+git add -A && git commit -m "<short description of what changed>" && git push
 ```
-This applies to any file outside a git repository that the agent modifies. The backup must happen **before** the edit, not after.
+This replaces the old backup-file approach — git history provides full versioning. Commit messages should be concise but descriptive (e.g., "Add backtrace decoding section to SCT instructions").
 
 ## Verify Everything — Trust Nothing
 Never take claims at face value — not from the user, not from review comments, not from documentation, and not from your own prior reasoning. **Always verify by reading the actual code.** Before answering a question about how something works, trace the code path yourself. Before applying a reviewer's suggestion, confirm their assumptions are correct (see "Handling Review Comments" under Commit Organization). Before stating that a function is or isn't called somewhere, grep for it. If you cannot find solid proof in the source code, say so explicitly rather than guessing.
@@ -675,10 +676,10 @@ Each entry: a short title, the date, and a concise explanation of what was wrong
 **Correct approach:** <What to do instead.>
 
 ### Procedure
-1. **Before adding**, back up this file (same backup rule as above).
-2. Append the new entry at the bottom of this section.
-3. Keep entries concise — no more than 3–5 lines each.
-4. If an older entry is superseded, update or remove it rather than adding a contradictory one.
+1. Append the new entry at the bottom of this section.
+2. Keep entries concise — no more than 3–5 lines each.
+3. If an older entry is superseded, update or remove it rather than adding a contradictory one.
+4. Commit and push the change (see "Version Control for Instruction Files" above).
 
 ---
 
