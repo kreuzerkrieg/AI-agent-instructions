@@ -570,8 +570,8 @@ This section is **written and maintained by the agent itself**, following the sa
 Each entry: a short title, the date, and a concise explanation. Keep entries to 3–5 lines max.
 
 ### Procedure
-1. **Before adding**, back up this file (same backup rule as in global instructions).
-2. Append the new entry at the bottom of this section.
-3. If an older entry is superseded, update or remove it.
+1. Append the new entry at the bottom of this section.
+2. If an older entry is superseded, update or remove it.
+3. Commit and push the change (see "Version Control for Instruction Files" in global instructions).
 
 ---
