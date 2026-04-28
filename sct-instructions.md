@@ -575,3 +575,12 @@ Each entry: a short title, the date, and a concise explanation. Keep entries to 
 3. Commit and push the change (see "Version Control for Instruction Files" in global instructions).
 
 ---
+
+### ScyllaDB metrics use dynamic group names (2026-04-28)
+Many ScyllaDB Prometheus metrics are registered with a runtime `group_name` variable (e.g., in `db/hints/manager.cc`, `service/tablet_allocator.cc`, `alternator/stats.cc`), making them invisible to naive `grep 'add_group("...'` extraction. The actual Prometheus name depends on the group name passed at object construction time (e.g., `hints_manager`, `load_balancer`, `alternator_GetItem`).
+**Correct approach:** When a metric is not found by searching the literal Prometheus name in C++, strip the `scylla_` prefix and group, then search for the short metric name (e.g., `"written"`, `"dropped"`). Check the known dynamic-group files listed in Appendix A3.
+
+### Always trace unmapped metrics back to C++ source (2026-04-28)
+When encountering a Prometheus metric during SCT analysis that is not in the mapping file, do not guess its meaning from the name alone. Trace it back to the C++ registration site (`add_group` + `make_counter`/`make_gauge`) to get the actual description. Then add it to the mapping file.
+**Correct approach:** Follow the "Unmapped Metric Procedure" above and update `scylladb_all_metrics_mapping.md`.
+
