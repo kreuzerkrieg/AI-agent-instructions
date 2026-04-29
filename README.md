@@ -28,9 +28,3 @@ git add -A && git commit -m "<description>" && git push
 ```
 
 Git history replaces the old timestamped-backup-file approach.
-
-## Not Tracked
-
-- `mcp.json` — MCP server configuration (contains local paths)
-- `*_backup_*` — Legacy backup files (superseded by git)
-- Empty placeholder files (`global-copilot-instructions.md`, `global-git-commit-instructions.md`)
