@@ -1,7 +1,7 @@
 # SCT (Scylla Cluster Tests) — Agent Instructions
 
-**Location:** `~/.config/github-copilot/intellij/sct-instructions.md`
-**Referenced from:** `~/.config/github-copilot/intellij/global-agents-instructions.md` (SCT section)
+**Location:** `~/.config/github-copilot/intellij/scylla/sct-instructions.md`
+**Referenced from:** `~/.config/github-copilot/intellij/global-agents-instructions.md` (ScyllaDB Ecosystem table)
 **Purpose:** SCT-specific conventions, analysis workflows, and metric mappings that supplement the repo-level `.github/copilot-instructions.md`.
 
 ---
@@ -591,7 +591,7 @@ Examples:
 - `sct_run_2730e03d_overview.md` — run structure and file inventory
 - `sct_run_2730e03d_performance_report.md` — throughput/latency analysis
 
-### Persistent Reference Files (in `~/.config/github-copilot/intellij/`)
+### Persistent Reference Files (in `~/.config/github-copilot/intellij/scylla/`)
 - `scylladb_all_metrics_mapping.md` — complete Prometheus-to-C++ source mapping (617 metrics + aliases)
 
 ---
