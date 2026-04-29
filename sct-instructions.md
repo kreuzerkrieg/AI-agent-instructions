@@ -636,3 +636,7 @@ When using `promtool tsdb dump` on a Prometheus snapshot directory (extracted fr
 When calculating cache hit rates from Prometheus counter deltas, the time window MUST correspond exactly to the read stress phase (check stress log timestamps). Using the full TSDB range or test duration gives incorrect averages because it includes the write/prepare phase where the cache is being populated (high misses) or idle periods.
 **Correct approach:** Extract read start/end timestamps from the stress log (`head -1` and `grep "Results:"` lines), convert to epoch ms, then filter Prometheus samples to that window only.
 
+### Always use Prometheus TSDB for metrics — never rely on nodetool or other approximations (2026-04-29)
+When reporting metrics like cache hit rate, throughput counters, or any time-series data, ALWAYS retrieve the data from the Prometheus TSDB snapshot (in `monitor-set-<id>/prometheus_data_*.tar.zst`). Do NOT use `nodetool info`, `nodetool cfstats`, gossip state, or system.log entries as substitutes — these provide point-in-time or cumulative snapshots that do not accurately reflect behavior during a specific test phase. In this analysis, `nodetool info` reported ~50% cache hit rate for local_4xlarge while Prometheus showed the correct value of 90.1% during the read phase.
+**Correct approach:** Extract the Prometheus TSDB, use `promtool tsdb dump --sandbox-dir-root="$TSDB" --match='{__name__="<metric>"}' "$TSDB"`, filter to the exact time window of interest, and compute deltas per (instance, shard).
+
