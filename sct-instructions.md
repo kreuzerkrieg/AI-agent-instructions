@@ -534,6 +534,50 @@ scylla_hints_manager_size_of_hints_in_progress
 
 ---
 
+## Argus Test Run Links
+
+Every SCT run is tracked in [Argus](https://argus.scylladb.com), the test result tracking service. Each run has a unique UUID (`test_id`) that maps to an Argus URL.
+
+### Argus URL Format
+```
+https://argus.scylladb.com/tests/scylla-cluster-tests/<test_id>
+```
+
+### Retrieving the Test ID
+
+1. **From the log directory** — `test_id` is written to a file by `TestConfig.set_test_id()`:
+   ```bash
+   cat ~/sct-results/latest/test_id          # Most recent run
+   cat ~/sct-results/<run_dir>/test_id        # Specific run
+   ```
+
+2. **From the SCT framework log** (`sct-<id>.log`) — the test ID appears early in the log during initialization. Search for:
+   ```bash
+   grep -i "test_id\|TestId" sct-<id>.log | head -5
+   ```
+
+3. **From cluster reuse** — when reusing a cluster, the test ID is obtained via:
+   ```bash
+   export SCT_REUSE_CLUSTER=$(cat ~/sct-results/latest/test_id)
+   ```
+
+4. **From Jenkins** — the Argus link is embedded in the Jenkins build description (see `vars/createArgusTestRun.groovy`).
+
+### Argus Log Download URLs
+
+Individual log archives can be downloaded directly from Argus:
+```
+https://argus.scylladb.com/api/v1/tests/scylla-cluster-tests/<test_id>/log/<filename>/download
+```
+Where `<filename>` matches the archive names listed in the "File Inventory" section (e.g., `sct-<id>.log.tar.zst`, `db-cluster-<id>.tar.zst`).
+
+### Quick One-Liner — Argus Link for Latest Run
+```bash
+echo "https://argus.scylladb.com/tests/scylla-cluster-tests/$(cat ~/sct-results/latest/test_id)"
+```
+
+---
+
 ## Analysis Report Locations
 
 All generated analysis files go to the CLion scratches directory:
