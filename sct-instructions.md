@@ -628,3 +628,11 @@ Many ScyllaDB Prometheus metrics are registered with a runtime `group_name` vari
 When encountering a Prometheus metric during SCT analysis that is not in the mapping file, do not guess its meaning from the name alone. Trace it back to the C++ registration site (`add_group` + `make_counter`/`make_gauge`) to get the actual description. Then add it to the mapping file.
 **Correct approach:** Follow the "Unmapped Metric Procedure" above and update `scylladb_all_metrics_mapping.md`.
 
+### promtool tsdb dump requires --sandbox-dir-root with snapshot directories (2026-04-29)
+When using `promtool tsdb dump` on a Prometheus snapshot directory (extracted from `prometheus_data_*.tar.zst`), the command fails silently with "setting up sandbox dir: stat data/: no such file or directory" unless you pass `--sandbox-dir-root="<tsdb_path>"`. Without this flag, promtool looks for a `data/` directory relative to CWD and produces no output.
+**Correct approach:** Always use `promtool tsdb dump --sandbox-dir-root="$TSDB" --match='{...}' "$TSDB"` when querying snapshot directories.
+
+### Cache hit rate must use correct read-phase time window (2026-04-29)
+When calculating cache hit rates from Prometheus counter deltas, the time window MUST correspond exactly to the read stress phase (check stress log timestamps). Using the full TSDB range or test duration gives incorrect averages because it includes the write/prepare phase where the cache is being populated (high misses) or idle periods.
+**Correct approach:** Extract read start/end timestamps from the stress log (`head -1` and `grep "Results:"` lines), convert to epoch ms, then filter Prometheus samples to that window only.
+
