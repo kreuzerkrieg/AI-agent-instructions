@@ -449,7 +449,7 @@ Focus on the **first** backtrace — later ones are often cascading failures fro
 
 ## ScyllaDB Prometheus Metrics — Full Source Code Mapping
 
-**Complete reference:** `~/.config/github-copilot/intellij/scylladb_all_metrics_mapping.md`
+**Complete reference:** `~/.config/github-copilot/intellij/scylla/scylladb_all_metrics_mapping.md`
 
 This file contains **617 unique metrics** extracted from 55 C++ source files, plus appendices covering:
 - **Appendix A1:** `scylla_cql_*` → `scylla_query_processor_*` recording rule aliases
