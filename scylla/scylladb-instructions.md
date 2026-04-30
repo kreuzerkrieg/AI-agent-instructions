@@ -143,6 +143,52 @@ grep -n "repair\|error\|timeout" testlog/<mode>/failed_test/<test_dir>/scylla-*.
 sed -n '5000,5100p' testlog/<mode>/failed_test/<test_dir>/scylla-gw16-13.log
 ```
 
+### Retrieving per-test execution times
+
+After a test run completes, per-test durations can be extracted from the pytest worker logs in `testlog/pytest_log/`. Each worker log (`pytest_gw<N>_<hash>.log`) contains timestamped "before-test" markers and "SUCCEEDED"/"FAILED" entries. Use this script to compute durations:
+
+```bash
+python3 -u -c "
+import re, os
+from datetime import datetime
+
+logdir = 'testlog/pytest_log'
+# Find the most recent log set by picking any gw0 file
+gw0_files = sorted([f for f in os.listdir(logdir) if f.startswith('pytest_gw0_')], key=lambda f: os.path.getmtime(os.path.join(logdir, f)), reverse=True)
+if not gw0_files:
+    print('No pytest worker logs found'); exit()
+log_hash = gw0_files[0].split('_')[-1].replace('.log', '')
+
+tests = {}
+for f in sorted(os.listdir(logdir)):
+    if not f.startswith('pytest_gw') or not f.endswith(f'_{log_hash}.log'):
+        continue
+    with open(os.path.join(logdir, f)) as fh:
+        lines = fh.readlines()
+    start_time = None
+    for line in lines:
+        m = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+.*before-test/([^\s>]+)', line)
+        if m:
+            start_time = datetime.strptime(m.group(1), '%Y-%m-%d %H:%M:%S')
+        m2 = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+.*Test.*::([^\s]+)\s+(SUCCEEDED|FAILED)', line)
+        if m2 and start_time:
+            end_time = datetime.strptime(m2.group(1), '%Y-%m-%d %H:%M:%S')
+            tests[m2.group(2)] = (end_time - start_time).total_seconds(), m2.group(3)
+            start_time = None
+
+for name, (dur, status) in sorted(tests.items(), key=lambda x: -x[1][0]):
+    mark = '✅' if status == 'SUCCEEDED' else '❌'
+    print(f'{dur:7.0f}s {mark} {name}')
+print(f'\nTotal: {len(tests)} tests, {sum(1 for _,(d,s) in tests.items() if s==\"SUCCEEDED\")} passed, {sum(1 for _,(d,s) in tests.items() if s==\"FAILED\")} failed')
+"
+```
+
+**Key points:**
+- The log hash (e.g., `7084c`) identifies a specific test run; the script auto-detects the most recent one
+- Timestamps are second-granularity (from log lines), so sub-second tests show as 0–1s
+- To filter by parametrize variant (e.g., only `[s3]` tests), pipe through `grep '\[s3'`
+- Wall-clock time of the entire run: check timestamps of first and last "SUCCEEDED" entries across all worker logs
+
 ## Useful `test.py` Command-Line Arguments
 
 ```bash
