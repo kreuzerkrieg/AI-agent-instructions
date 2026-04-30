@@ -85,5 +85,9 @@ Each entry: a short title, the date, and a concise explanation of what was wrong
 3. If an older entry is superseded, update or remove it rather than adding a contradictory one.
 4. Commit and push the change (see "Version Control for Instruction Files" above).
 
+### Load project-specific instructions proactively at session start (2026-04-30)
+The agent waited until the user asked whether `scylla/scylladb-instructions.md` was loaded instead of loading it at the beginning of the session.
+**Correct approach:** At the very start of a session, identify which repo is active and immediately `read_file` the corresponding project-specific instructions file (e.g., `scylla/scylladb-instructions.md` for scylladb/scylladb). Do not wait for the user to ask.
+
 ---
 
