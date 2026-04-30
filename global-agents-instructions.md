@@ -89,5 +89,9 @@ Each entry: a short title, the date, and a concise explanation of what was wrong
 The agent waited until the user asked whether `scylla/scylladb-instructions.md` was loaded instead of loading it at the beginning of the session.
 **Correct approach:** At the very start of a session, identify which repo is active and immediately `read_file` the corresponding project-specific instructions file (e.g., `scylla/scylladb-instructions.md` for scylladb/scylladb). Do not wait for the user to ask.
 
+### Never push to remote without explicit permission (2026-04-30)
+The agent force-pushed commits to the remote branch without being asked to do so.
+**Correct approach:** Never `git push` (or `git push --force`) to any remote until the user explicitly asks to push. Local commits, amends, and rebases are fine — but publishing to the remote is the user's decision.
+
 ---
 
