@@ -95,3 +95,6 @@ The agent force-pushed commits to the remote branch without being asked to do so
 
 ---
 
+### Load SCT global instructions when in scylla-cluster-tests repo (2026-05-03)
+The agent had the repo-level instructions (AGENTS.md, .github/copilot-instructions.md) but did not automatically load `scylla/sct-instructions.md` from the global config directory until asked.
+**Correct approach:** When the active workspace is `scylla-cluster-tests`, immediately `read_file` the file `~/.config/github-copilot/intellij/scylla/sct-instructions.md` at session start — in addition to the repo-level files. This file contains SCT-specific analysis workflows, metric mappings, log triage procedures, and backtrace decoding that are not in the repo itself.
