@@ -7,8 +7,6 @@ Personal instruction files for AI coding agents (GitHub Copilot, Claude Code) ta
 ```
 ~/.config/github-copilot/intellij/
 ├── global-agents-instructions.md          # Loaded for every conversation (agent behavior, terminal rules, lessons learned)
-├── global-copilot-instructions.md         # Copilot-specific global instructions
-├── global-git-commit-instructions.md      # Git commit message conventions
 ├── README.md                              # This file
 └── scylla/
     ├── scylladb-instructions.md           # ScyllaDB C++ repo: build, test, code style, commit organization, PR format
