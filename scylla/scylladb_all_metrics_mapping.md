@@ -1,4 +1,4 @@
-# Total unique metrics: 617
+# Total unique metrics: 647
 # From 55 source files
 
 ##  (10 metrics)
@@ -530,18 +530,59 @@
 | `scylla_rpc_compression_messages_received` | counter | message/advanced_rpc_compressor.cc:297 | RPC messages received |
 | `scylla_rpc_compression_messages_sent` | counter | message/advanced_rpc_compressor.cc:298 | RPC messages sent |
 
-## s3 (11 metrics)
+## s3 (41 metrics)
 
-| `scylla_s3_downloads_blocked_on_memory` | counter | utils/s3/client.cc:260 | Counts the number of times S3 client downloads were delayed due to insufficient memory availability |
-| `scylla_s3_nr_active_connections` | gauge | utils/s3/client.cc:242 | Total number of connections with running requests |
-| `scylla_s3_nr_connections` | gauge | utils/s3/client.cc:240 | Total number of connections |
-| `scylla_s3_total_new_connections` | counter | utils/s3/client.cc:244 | Total number of new connections created so far |
+> **Note:** In 2026.3.0~dev builds, the old `scylla_s3_total_{read,write}_{bytes,requests,latency_sec}` metrics were replaced by per-HTTP-method variants (`get`, `put`, `head`, `delete`, `post`, `connect`, `options`, `patch`, `trace`). The old names are listed at the end for reference.
+
+| `scylla_s3_downloads_blocked_on_memory` | gauge | utils/s3/client.cc | S3 downloads currently blocked waiting for memory |
+| `scylla_s3_nr_active_connections` | gauge | utils/s3/client.cc | Total number of connections with running requests |
+| `scylla_s3_nr_connections` | gauge | utils/s3/client.cc | Total number of connections |
+| `scylla_s3_total_new_connections` | counter | utils/s3/client.cc | Total number of new connections created so far |
+| `scylla_s3_total_read_prefetch_bytes` | counter | utils/s3/client.cc | Total number of bytes prefetched during S3 reads |
+| `scylla_s3_total_get_bytes` | counter | utils/s3/client.cc | Total bytes received in GET requests (object reads) |
+| `scylla_s3_total_get_latency_sec` | counter | utils/s3/client.cc | Cumulative latency of GET requests |
+| `scylla_s3_total_get_requests` | counter | utils/s3/client.cc | Total number of GET requests |
+| `scylla_s3_total_get_retries` | counter | utils/s3/client.cc | GET request retries |
+| `scylla_s3_total_put_bytes` | counter | utils/s3/client.cc | Total bytes sent in PUT requests (object writes) |
+| `scylla_s3_total_put_latency_sec` | counter | utils/s3/client.cc | Cumulative latency of PUT requests |
+| `scylla_s3_total_put_requests` | counter | utils/s3/client.cc | Total number of PUT requests |
+| `scylla_s3_total_put_retries` | counter | utils/s3/client.cc | PUT request retries |
+| `scylla_s3_total_head_bytes` | counter | utils/s3/client.cc | Total bytes in HEAD requests |
+| `scylla_s3_total_head_latency_sec` | counter | utils/s3/client.cc | Cumulative latency of HEAD requests |
+| `scylla_s3_total_head_requests` | counter | utils/s3/client.cc | Total number of HEAD requests (metadata checks) |
+| `scylla_s3_total_head_retries` | counter | utils/s3/client.cc | HEAD request retries |
+| `scylla_s3_total_delete_bytes` | counter | utils/s3/client.cc | Total bytes in DELETE requests |
+| `scylla_s3_total_delete_latency_sec` | counter | utils/s3/client.cc | Cumulative latency of DELETE requests |
+| `scylla_s3_total_delete_requests` | counter | utils/s3/client.cc | Total number of DELETE requests (object removal) |
+| `scylla_s3_total_delete_retries` | counter | utils/s3/client.cc | DELETE request retries |
+| `scylla_s3_total_post_bytes` | counter | utils/s3/client.cc | Total bytes in POST requests (multipart upload) |
+| `scylla_s3_total_post_latency_sec` | counter | utils/s3/client.cc | Cumulative latency of POST requests |
+| `scylla_s3_total_post_requests` | counter | utils/s3/client.cc | Total number of POST requests |
+| `scylla_s3_total_post_retries` | counter | utils/s3/client.cc | POST request retries |
+| `scylla_s3_total_connect_bytes` | counter | utils/s3/client.cc | Total bytes in CONNECT requests |
+| `scylla_s3_total_connect_latency_sec` | counter | utils/s3/client.cc | Cumulative latency of CONNECT requests |
+| `scylla_s3_total_connect_requests` | counter | utils/s3/client.cc | Total number of CONNECT requests |
+| `scylla_s3_total_connect_retries` | counter | utils/s3/client.cc | CONNECT request retries |
+| `scylla_s3_total_options_bytes` | counter | utils/s3/client.cc | Total bytes in OPTIONS requests |
+| `scylla_s3_total_options_latency_sec` | counter | utils/s3/client.cc | Cumulative latency of OPTIONS requests |
+| `scylla_s3_total_options_requests` | counter | utils/s3/client.cc | Total number of OPTIONS requests |
+| `scylla_s3_total_options_retries` | counter | utils/s3/client.cc | OPTIONS request retries |
+| `scylla_s3_total_patch_bytes` | counter | utils/s3/client.cc | Total bytes in PATCH requests |
+| `scylla_s3_total_patch_latency_sec` | counter | utils/s3/client.cc | Cumulative latency of PATCH requests |
+| `scylla_s3_total_patch_requests` | counter | utils/s3/client.cc | Total number of PATCH requests |
+| `scylla_s3_total_patch_retries` | counter | utils/s3/client.cc | PATCH request retries |
+| `scylla_s3_total_trace_bytes` | counter | utils/s3/client.cc | Total bytes in TRACE requests |
+| `scylla_s3_total_trace_latency_sec` | counter | utils/s3/client.cc | Cumulative latency of TRACE requests |
+| `scylla_s3_total_trace_requests` | counter | utils/s3/client.cc | Total number of TRACE requests |
+| `scylla_s3_total_trace_retries` | counter | utils/s3/client.cc | TRACE request retries |
+
+**Legacy metrics (pre-2026.3.0, may still appear in older builds):**
+
 | `scylla_s3_total_read_bytes` | counter | utils/s3/client.cc:250 | Total number of bytes read from objects |
 | `scylla_s3_total_read_latency_sec` | counter | utils/s3/client.cc:254 | Total time spent reading data from objects |
-| `scylla_s3_total_read_prefetch_bytes` | counter | utils/s3/client.cc:258 | Total number of bytes requested from object |
 | `scylla_s3_total_read_requests` | counter | utils/s3/client.cc:246 | Total number of object read requests |
 | `scylla_s3_total_write_bytes` | counter | utils/s3/client.cc:252 | Total number of bytes written to objects |
-| `scylla_s3_total_write_latency_sec` | counter | utils/s3/client.cc:256 | Total time spend writing data to objects |
+| `scylla_s3_total_write_latency_sec` | counter | utils/s3/client.cc:256 | Total time spent writing data to objects |
 | `scylla_s3_total_write_requests` | counter | utils/s3/client.cc:248 | Total number of object write requests |
 
 ## scheduler (7 metrics)
