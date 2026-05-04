@@ -560,7 +560,7 @@ This ensures the mapping stays current as ScyllaDB evolves.
 | `rpc` | 17 | `seastar/src/rpc/rpc.cc`, `message/advanced_rpc_compressor.cc` | Inter-node RPC: messages, timeouts, compression ratio |
 | `transport` | 15 | `transport/server.cc` | CQL transport: connections, request serving, forwarding, shedding |
 | `lsa` | 13 | `utils/logalloc.cc` | Log-Structured Allocator: memory usage, compaction, eviction, reclaim |
-| `s3` | 11 | `utils/s3/client.cc` | Object storage client: connections, read/write bytes/latency |
+| `s3` | 41 | `utils/s3/client.cc` | Object storage client: connections, per-HTTP-method bytes/latency/requests/retries (GET/PUT/HEAD/DELETE/POST/CONNECT/OPTIONS/PATCH/TRACE), prefetch, memory blocks |
 | `repair` | 11 | `repair/row_level.cc` | Repair: rows/hashes/bytes sent/received, SSTable reads |
 | `compaction_manager` | 8 | `compaction/compaction_manager.cc` | Compaction: active/pending/completed/failed, backlog |
 | `scheduler` | 7 | `seastar/src/core/reactor.cc` | Per-scheduling-group: runtime, wait time, starve time, queue length |
