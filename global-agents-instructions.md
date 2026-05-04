@@ -2,6 +2,30 @@
 
 **This is the global instructions file** (`~/.config/github-copilot/intellij/global-agents-instructions.md`). It is loaded for every conversation regardless of which repository is open. Repository-specific instructions live in `.github/copilot-instructions.md` inside each repo.
 
+---
+
+## ⚠️ MANDATORY FIRST ACTIONS — Execute Before Anything Else
+
+**These steps MUST be the very first tool calls in every session/conversation, before responding to the user's question or performing any task.** No exceptions. Do not skip them even if the user's request seems urgent or trivial.
+
+1. **Pull latest instructions:**
+   ```bash
+   cd ~/.config/github-copilot/intellij && git pull --rebase
+   ```
+
+2. **Identify the active workspace** from `<workspace_info>` and **immediately `read_file`** the corresponding project-specific instructions:
+
+   | Workspace contains | File to load |
+   |-------------------|--------------|
+   | `scylladb/scylladb` | `~/.config/github-copilot/intellij/scylla/scylladb-instructions.md` |
+   | `scylla-cluster-tests` | `~/.config/github-copilot/intellij/scylla/sct-instructions.md` |
+
+3. **Only then** begin working on the user's request.
+
+**Why this exists:** The agent has repeatedly failed to load project-specific instructions at session start (2026-04-30, 2026-05-03, 2026-05-04), despite having "lessons learned" entries and prose instructions about it. Burying the requirement in prose doesn't work — it must be a non-negotiable checklist at the top of the file.
+
+---
+
 ## Project-Specific Instructions
 
 Project-specific instructions are organized under subdirectories of this config directory. When the active workspace matches a project, read and follow the corresponding instructions file.
@@ -85,16 +109,11 @@ Each entry: a short title, the date, and a concise explanation of what was wrong
 3. If an older entry is superseded, update or remove it rather than adding a contradictory one.
 4. Commit and push the change (see "Version Control for Instruction Files" above).
 
-### Load project-specific instructions proactively at session start (2026-04-30)
-The agent waited until the user asked whether `scylla/scylladb-instructions.md` was loaded instead of loading it at the beginning of the session.
-**Correct approach:** At the very start of a session, identify which repo is active and immediately `read_file` the corresponding project-specific instructions file (e.g., `scylla/scylladb-instructions.md` for scylladb/scylladb). Do not wait for the user to ask.
+### Load project-specific instructions at session start — SUPERSEDED (2026-04-30, 2026-05-03, 2026-05-04)
+Repeated failures to load project-specific instructions at session start despite multiple lessons-learned entries.
+**Correct approach:** Moved to `## ⚠️ MANDATORY FIRST ACTIONS` section at the top of this file as a non-negotiable checklist. The checklist format prevents the agent from skipping it.
 
 ### Never push to remote without explicit permission — except the instructions repo (2026-04-30, updated 2026-05-04)
 The agent force-pushed commits to a code repository's remote branch without being asked to do so.
 **Correct approach:** Never `git push` (or `git push --force`) to any **code repository** remote until the user explicitly asks to push. Local commits, amends, and rebases are fine — but publishing code to a remote is the user's decision. **Exception:** The instructions repo (`~/.config/github-copilot/intellij/`, remote `git@github.com:kreuzerkrieg/AI-agent-instructions.git`) is fully agent-managed — always commit **and push** changes to it immediately, without waiting for permission.
 
----
-
-### Load SCT global instructions when in scylla-cluster-tests repo (2026-05-03)
-The agent had the repo-level instructions (AGENTS.md, .github/copilot-instructions.md) but did not automatically load `scylla/sct-instructions.md` from the global config directory until asked.
-**Correct approach:** When the active workspace is `scylla-cluster-tests`, immediately `read_file` the file `~/.config/github-copilot/intellij/scylla/sct-instructions.md` at session start — in addition to the repo-level files. This file contains SCT-specific analysis workflows, metric mappings, log triage procedures, and backtrace decoding that are not in the repo itself.
