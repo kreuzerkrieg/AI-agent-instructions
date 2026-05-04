@@ -117,3 +117,7 @@ Repeated failures to load project-specific instructions at session start despite
 The agent force-pushed commits to a code repository's remote branch without being asked to do so.
 **Correct approach:** Never `git push` (or `git push --force`) to any **code repository** remote until the user explicitly asks to push. Local commits, amends, and rebases are fine — but publishing code to a remote is the user's decision. **Exception:** The instructions repo (`~/.config/github-copilot/intellij/`, remote `git@github.com:kreuzerkrieg/AI-agent-instructions.git`) is fully agent-managed — always commit **and push** changes to it immediately, without waiting for permission.
 
+### Never speculate in analysis reports — only state verified facts (2026-05-04)
+The agent included unverified speculation in analysis reports (e.g., "~5 SSTable components", "PUTs likely from system tables/commitlog") without evidence, and didn't label them as speculation. When the user challenged these claims, they turned out to be wrong.
+**Correct approach:** (1) Only include claims backed by hard evidence from metrics/logs. (2) If a claim cannot be verified but is worth mentioning, explicitly label it as "**Speculation:**" or "**Unverified:**". (3) Never present inferences as facts. (4) When computing metric deltas, always account for ALL label dimensions (e.g., `class`, `scheduling_group_name`) — aggregating across labels without awareness produces incorrect totals.
+
