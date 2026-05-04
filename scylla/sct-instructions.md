@@ -543,6 +543,8 @@ Every SCT run is tracked in [Argus](https://argus.scylladb.com), the test result
 https://argus.scylladb.com/tests/scylla-cluster-tests/<test_id>
 ```
 
+> **⚠️ CRITICAL:** `<test_id>` is always the **full 36-character UUID** with dashes (e.g., `652145e6-03d2-47f0-8459-800926104f49`). **Never** use a truncated/short prefix (e.g., `652145e6`) — Argus will not resolve it. The log directory names use a short prefix, but the Argus URL requires the complete UUID from the `test_id` file.
+
 ### Retrieving the Test ID
 
 1. **From the log directory** — `test_id` is written to a file by `TestConfig.set_test_id()`:
