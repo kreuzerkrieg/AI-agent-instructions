@@ -12,7 +12,7 @@
 Every SCT run produces logs with a consistent **8-character hex suffix** (e.g., `2730e03d`). All files from the same run share this suffix. **Always verify suffix consistency** across all downloaded files — if any file has a different suffix, warn the user immediately.
 
 ### File Inventory (typical download from Argus)
-Each run produces 8 archives:
+Each run produces 8 standard archives, plus optional core dump files when crashes occur:
 
 | Archive | Contents | Key Files |
 |---------|----------|-----------|
@@ -24,6 +24,33 @@ Each run produces 8 archives:
 | `schema-logs-<id>.tar.zst` | CQL schema snapshots | `schema.log`, `schema_with_internals.log` |
 | `ssl-conf-<id>.tar.zst` | TLS certificates | Per-node certs, CA, truststores |
 | `builder-<id>.log.tar.gz` | Builder machine journal | Low analysis value |
+| `core.scylla.*.zst` | Compressed core dumps (optional) | One file per crash — see "Core Dump Files" below |
+
+#### Core Dump Files (when present)
+
+When ScyllaDB crashes during a run, `systemd-coredump` captures core dumps which SCT uploads to `upload.scylladb.com` and also saves locally. These files appear alongside the standard archives with filenames like:
+
+```
+core.scylla.<uid>.<boot_id>.<pid>.<timestamp_usec>._core.scylla.<uid>.<boot_id>.<pid>.<timestamp_usec>.zst
+```
+
+**Filename components:**
+- `<uid>` — UID of the scylla user (typically `106`)
+- `<boot_id>` — systemd boot ID (32-char hex) — maps to a specific node
+- `<pid>` — PID of the crashed scylla process
+- `<timestamp_usec>` — crash timestamp in microseconds since epoch
+
+**Mapping core dumps to nodes:** The `<boot_id>` in the filename maps to a specific node. Search the SCT log for the boot ID to find the node name:
+```bash
+grep '<boot_id>' sct-<id>.log | head -3
+```
+
+**Important:** When `db-cluster-<id>.tar.zst` is **not present** (e.g., user downloaded only selected files from Argus), the core dump `coredumpctl info` output is still available in the SCT main log under `CoreDumpEvent` entries. Search for it:
+```bash
+grep -A 100 'CoreDumpEvent.*backtrace=' sct-<id>.log | head -120
+```
+
+**Typical core dump sizes:** 20 MB–500 MB compressed (depends on shard memory usage at crash time).
 
 ### Detailed Archive Contents
 
@@ -435,6 +462,54 @@ The response JSON `stdout` field contains the fully symbolized backtrace with:
    ```
 4. **Symbolize** using the remote service (see above).
 5. **Analyze** the symbolized output — look at the top frames for the crash site, trace the call path backward.
+
+### `coredumpctl info` Backtraces in `CoreDumpEvent`
+
+When `db-cluster-<id>.tar.zst` is not available (e.g., only specific files were downloaded from Argus), the **CoreDumpEvent** entries in the SCT main log (`sct-<id>.log`) contain the `coredumpctl info` output — including a per-thread stack trace with **mangled** C++ symbols.
+
+**Extracting from SCT log:**
+```bash
+# Find all CoreDumpEvent backtraces
+grep -n 'CoreDumpEvent.*backtrace=' sct-<id>.log
+
+# Extract a specific one (look for 'Stack trace of thread' sections)
+grep -A 200 'CoreDumpEvent.*backtrace=.*PID: <PID>' sct-<id>.log | grep 'Stack trace\|#[0-9]'
+```
+
+**The backtrace looks like:**
+```
+Stack trace of thread 5063:
+#0  0x0000000043678735 abort (libc.so.6 + 0x1735)
+#1  0x0000000001e3c49a _ZN7seastar6memoryL21on_allocation_failureEm (scylla + 0x1c3c49a)
+#2  0x0000000001b7c9a2 _ZN7seastar6memory17allocate_slowpathEm (scylla + 0x197c9a2)
+#3  0x000000000218bded _ZN8sstables5parseI...E.resume (scylla + 0x1f8bded)
+```
+
+**Demangling:** The `_Z...` symbols are mangled C++ names. Demangle with `c++filt`:
+```bash
+# Extract mangled symbols and demangle them
+grep '#[0-9]' /tmp/bt.txt | grep -oP '_Z\S+' | c++filt
+```
+
+**Key differences from `system.log` backtraces:**
+- `coredumpctl info` shows **all threads** (reactor, thread_pool, alien_worker), not just the crashing shard
+- Symbols are mangled but include the module offset (`scylla + 0x...`)
+- The crashing thread is the one with `abort()` / `raise()` / signal handler at the top
+- Other threads typically show `io_pgetevents` (reactor idle), `read` (thread pool), or `pthread_cond_wait` (alien worker)
+
+### Oversized Allocation Backtraces (already decoded)
+
+ScyllaDB's seastar memory allocator logs **oversized allocation** warnings with **fully decoded** backtraces (including source file and line numbers). These appear in `system.log` or in SCT `error.log` entries with regex `seastar_memory - oversized allocation`:
+
+```
+[shard 1:strm] seastar_memory - oversized allocation: 1212416 bytes.
+  at 0x1949d3f 0x354c890 ...
+seastar::current_backtrace_tasklocal() at ./seastar/include/seastar/util/backtrace.hh:85
+seastar::memory::cpu_pages::warn_large_allocation(unsigned long) at ./seastar/src/core/memory.cc:865
+utils::small_vector<...>::expand(unsigned long) at ././utils/small_vector.hh:72
+```
+
+**These backtraces don't need decoding** — they already contain demangled function names and source locations. They often precede a crash (the oversized allocation may succeed as a warning, but eventually OOM → abort). Cross-reference the shard ID and scheduling group (`strm` = streaming, `gms` = gossip, `mant` = maintenance) with the `coredumpctl info` to confirm the same code path.
 
 ### Multiple Backtraces
 
