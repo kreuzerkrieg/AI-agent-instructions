@@ -463,39 +463,27 @@ The response JSON `stdout` field contains the fully symbolized backtrace with:
 4. **Symbolize** using the remote service (see above).
 5. **Analyze** the symbolized output — look at the top frames for the crash site, trace the call path backward.
 
-### `coredumpctl info` Backtraces in `CoreDumpEvent`
+### `coredumpctl info` Backtraces in `CoreDumpEvent` (low-quality fallback)
 
-When `db-cluster-<id>.tar.zst` is not available (e.g., only specific files were downloaded from Argus), the **CoreDumpEvent** entries in the SCT main log (`sct-<id>.log`) contain the `coredumpctl info` output — including a per-thread stack trace with **mangled** C++ symbols.
+> **⚠️ Prefer the remote symbolization service** (see above). `coredumpctl info` provides only mangled symbols without source locations. Use it only for quick thread-state triage (e.g., "which threads were running?"), never as the primary decode method.
 
-**Extracting from SCT log:**
+When `db-cluster-<id>.tar.zst` is not available, **CoreDumpEvent** entries in `sct-<id>.log` contain `coredumpctl info` output — including per-thread stack traces with **mangled** C++ symbols. However, the **same SCT log** also contains `Backtrace:` blocks with raw hex addresses that can be sent to the remote symbolization service for much better results.
+
+**To get properly decoded backtraces without `db-cluster-<id>.tar.zst`:**
+1. Get the Build ID: `grep 'build-id' sct-<id>.log | head -1`
+2. Extract raw `Backtrace:` hex addresses near the crash timestamp
+3. Send to `staging.backtrace.scylladb.com/api/backtrace` (see "Symbolizing via Remote Service")
+
+**`coredumpctl info` extraction (for thread-state triage only):**
 ```bash
-# Find all CoreDumpEvent backtraces
-grep -n 'CoreDumpEvent.*backtrace=' sct-<id>.log
-
-# Extract a specific one (look for 'Stack trace of thread' sections)
 grep -A 200 'CoreDumpEvent.*backtrace=.*PID: <PID>' sct-<id>.log | grep 'Stack trace\|#[0-9]'
 ```
 
-**The backtrace looks like:**
-```
-Stack trace of thread 5063:
-#0  0x0000000043678735 abort (libc.so.6 + 0x1735)
-#1  0x0000000001e3c49a _ZN7seastar6memoryL21on_allocation_failureEm (scylla + 0x1c3c49a)
-#2  0x0000000001b7c9a2 _ZN7seastar6memory17allocate_slowpathEm (scylla + 0x197c9a2)
-#3  0x000000000218bded _ZN8sstables5parseI...E.resume (scylla + 0x1f8bded)
-```
-
-**Demangling:** The `_Z...` symbols are mangled C++ names. Demangle with `c++filt`:
-```bash
-# Extract mangled symbols and demangle them
-grep '#[0-9]' /tmp/bt.txt | grep -oP '_Z\S+' | c++filt
-```
-
-**Key differences from `system.log` backtraces:**
-- `coredumpctl info` shows **all threads** (reactor, thread_pool, alien_worker), not just the crashing shard
-- Symbols are mangled but include the module offset (`scylla + 0x...`)
-- The crashing thread is the one with `abort()` / `raise()` / signal handler at the top
-- Other threads typically show `io_pgetevents` (reactor idle), `read` (thread pool), or `pthread_cond_wait` (alien worker)
+**Key characteristics:**
+- Shows **all threads** (reactor, thread_pool, alien_worker), not just the crashing shard
+- Symbols are mangled (`_Z...`) — demangle with `c++filt`, but you still get no source locations
+- The crashing thread is the one with `abort()` / `raise()` at the top
+- Other threads: `io_pgetevents` (reactor idle), `read` (thread pool), `pthread_cond_wait` (alien worker)
 
 ### Oversized Allocation Backtraces (already decoded)
 
