@@ -661,6 +661,137 @@ Examples:
 
 ---
 
+## Tuning cassandra-stress Tests for Storage Backend & Instance Size
+
+When configuring SCT stress tests (particularly `prepare_write_cmd` and `stress_cmd`), the parameters must be adjusted based on the storage backend (local NVMe vs S3), instance type resources, cluster size, and replication factor. This section captures the tuning lessons learned from running GrowShrink nemesis tests on S3-backed keyspaces.
+
+### Key Timeout Layers (all must be coordinated)
+
+| Layer | Setting | Default | Where configured |
+|-------|---------|---------|-----------------|
+| **Java driver client** | `-mode cql3 native requestTimeout=<ms>` | 12000ms | cassandra-stress CLI `-mode` section |
+| **Scylla server write** | `write_request_timeout_in_ms` | 2000ms | `append_scylla_yaml` in test config |
+| **Scylla server read** | `read_request_timeout_in_ms` | 5000ms | `append_scylla_yaml` in test config |
+
+**Rule:** Client timeout > Server timeout > Expected worst-case latency. For S3 backends, use at minimum:
+- Server: `write_request_timeout_in_ms: 30000`, `read_request_timeout_in_ms: 30000`
+- Client: `requestTimeout=60000` (in the `-mode` section of every cassandra-stress command)
+
+**Symptom of misconfigured timeouts:**
+- `OperationTimedOutException: configured timeout: 12000ms` → Client-side (Java driver). Fix: increase `requestTimeout=` in `-mode`.
+- `WriteTimeoutException` / `ReadTimeoutException` → Server-side. Fix: increase `*_timeout_in_ms` in `append_scylla_yaml`.
+
+### Storage Backend Impact on Thread Counts
+
+| Backend | Write throughput (per loader) | Recommended threads | Notes |
+|---------|------------------------------|--------------------:|-------|
+| Local NVMe (i4i) | 60–80K op/s | 80–100 | Sub-ms latency, can saturate CPU |
+| S3 (object storage) | 15–25K op/s | 40–60 | 25–50ms latency per PUT; too many threads → timeout cascade |
+
+**Why S3 needs fewer threads:** Each S3 PUT has ~25–50ms latency. With 80 threads × 4 loaders = 320 concurrent writes, the cluster can sustain this initially, but after 20–25 minutes the accumulation of S3 back-pressure (compaction flushes competing with user writes for S3 bandwidth) causes latency spikes that exceed the client timeout.
+
+**S3-specific tuning formula:**
+- Start with 60 threads per loader
+- If timeouts occur at the end of the write phase (near completion), it's usually back-pressure from accumulated flushes — consider bumping `requestTimeout` rather than reducing threads further
+- If timeouts occur early (first 5 min), reduce threads
+
+### Data Sizing Calculations
+
+For `cassandra-stress` with `-col 'n=FIXED(C) size=FIXED(S)'`:
+- Row size ≈ key(48 bytes) + C × S bytes + overhead(~50 bytes)
+- For `n=FIXED(8) size=FIXED(128)`: row ≈ 48 + 8×128 + 50 ≈ 1122 bytes ≈ 1 KiB
+
+**Scaling to target data size (accounting for RF):**
+```
+total_rows = target_data_GiB × 1024³ / row_size_bytes
+rows_per_loader = total_rows / n_loaders
+data_per_node = target_data_GiB × RF / n_db_nodes
+```
+
+Example: 100 GiB target, RF=3, 6 nodes, 4 loaders:
+- total_rows = 100 × 1024³ / 1024 ≈ 106M rows
+- rows_per_loader = 106M / 4 = 26.5M
+- data_per_node = 100 × 3 / 6 = 50 GiB (must fit on disk)
+
+### Instance Type Selection
+
+**DB nodes:**
+- Must have enough disk for `target_data × RF / n_nodes` + headroom for compaction (2×)
+- `i4i.large` (468 GB NVMe) → supports ~200 GiB data per node
+- For S3 keyspaces: local disk used for commitlog, system tables, caches only — smaller instances work
+
+**Loader nodes:**
+- CPU-bound during write phase; need enough cores to drive target thread count
+- `c6i.2xlarge` (8 vCPU, 16 GB) → good for 60–80 threads per loader
+- `c6i.large` (2 vCPU, 4 GB) → only for ≤20 threads
+
+### Nemesis Interaction with S3 Writes
+
+**Critical:** GrowShrink nemesis bootstraps new nodes, which triggers tablet migration → S3 reads + writes from new nodes. If this happens during the write phase, the combined S3 pressure (user writes + migration reads/writes) overwhelms the cluster.
+
+**Rules:**
+- Always set `nemesis_during_prepare: false` for S3-backed keyspaces
+- `teardown_validators: scrub` is incompatible with GrowShrink — decommissioned nodes get scrubbed and timeout. Comment it out.
+- Keep stress_cmd reads at very low thread count (1–2) during nemesis to observe migration without interference
+
+### round_robin Behavior
+
+When `round_robin: true` is set:
+- `prepare_write_cmd` entries are distributed 1-per-loader (entry[0] → loader-1, entry[1] → loader-2, etc.)
+- Each loader gets exactly one command, not all commands
+- Number of entries in `prepare_write_cmd` must equal `n_loaders`
+- `-pop seq=` ranges must be non-overlapping and cover the full key range
+
+### Write Phase Duration Estimation
+
+For S3 backends with the recommended settings:
+- 60 threads × 4 loaders → cluster throughput ~60–80K op/s
+- 106M rows ÷ 70K op/s ≈ 25 minutes
+- Add 50% safety margin for S3 back-pressure near the end → budget ~35–40 min
+
+Set `test_duration` to accommodate: write_time + stress_duration + nemesis_buffer:
+- Example: 40 min write + 60 min stress + 15 min nemesis overlap + 35 min buffer = 150 min
+
+### Complete S3 GrowShrink Test Config Template
+
+```yaml
+test_duration: 150
+
+pre_create_keyspace: >-
+  CREATE KEYSPACE keyspace1 WITH replication =
+  {'class': 'NetworkTopologyStrategy', 'replication_factor': 3}
+  AND storage = {'type': 'S3', 'endpoint': 's3.<region>.amazonaws.com',
+  'bucket': '<bucket-name>'};
+
+prepare_write_cmd:  # 4 entries for 4 loaders (round_robin: true)
+    - "cassandra-stress write cl=QUORUM n=26500000 -schema '...' -mode cql3 native requestTimeout=60000 -rate threads=60 -pop seq=1..26500000 -col 'n=FIXED(8) size=FIXED(128)' -log interval=5"
+    - "cassandra-stress write cl=QUORUM n=26500000 -schema '...' -mode cql3 native requestTimeout=60000 -rate threads=60 -pop seq=26500001..53000000 -col 'n=FIXED(8) size=FIXED(128)' -log interval=5"
+    - "cassandra-stress write cl=QUORUM n=26500000 -schema '...' -mode cql3 native requestTimeout=60000 -rate threads=60 -pop seq=53000001..79500000 -col 'n=FIXED(8) size=FIXED(128)' -log interval=5"
+    - "cassandra-stress write cl=QUORUM n=26500000 -schema '...' -mode cql3 native requestTimeout=60000 -rate threads=60 -pop seq=79500001..106000000 -col 'n=FIXED(8) size=FIXED(128)' -log interval=5"
+
+stress_cmd:  # Low-pressure reads during nemesis
+    - "cassandra-stress read cl=QUORUM duration=60m -schema '...' -mode cql3 native requestTimeout=60000 -rate threads=1 -pop seq=1..106000000 -col 'n=FIXED(8) size=FIXED(128)' -log interval=5"
+    - "cassandra-stress read cl=QUORUM duration=60m -schema '...' -mode cql3 native requestTimeout=60000 -rate threads=1 -pop seq=1..106000000 -col 'n=FIXED(8) size=FIXED(128)' -log interval=5"
+
+round_robin: true
+n_db_nodes: 6
+n_loaders: 4
+instance_type_db: 'i4i.large'
+instance_type_loader: 'c6i.2xlarge'
+
+nemesis_during_prepare: false
+nemesis_interval: 3
+
+append_scylla_yaml:
+  write_request_timeout_in_ms: 30000
+  read_request_timeout_in_ms: 30000
+
+experimental_features:
+  - keyspace-storage-options
+```
+
+---
+
 ## Lessons Learned — Self-Updating Section (SCT-specific)
 
 This section is **written and maintained by the agent itself**, following the same rules as the global Lessons Learned section in `global-agents-instructions.md`. Entries here are **SCT-specific** — general insights go in the global file instead.
