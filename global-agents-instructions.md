@@ -127,3 +127,8 @@ The agent used `GIT_SEQUENCE_EDITOR="sed -i ..." EDITOR="cp ..." git rebase -i` 
 ### Refine PR must verify diff minimality — no gratuitous blank lines (2026-05-04)
 The agent added extra blank lines in refactored code and did not catch them during the "refine PR" step. The scylladb instructions explicitly state: "Never add or remove blank lines that are unrelated to the task" and "the diff should contain only the lines required for the functional change."
 **Correct approach:** During "refine PR", always `git show <sha>` each commit and scan for `^+$` / `^-$` (blank line additions/removals). If any exist that aren't structurally required by new code, remove them before finalizing.
+
+### Argus URL format includes the project name in the path (2026-05-07)
+The agent constructed the Argus link as `https://argus.scylladb.com/tests/<test_id>`, omitting the project segment.
+**Correct approach:** The correct Argus URL format is `https://argus.scylladb.com/tests/scylla-cluster-tests/<test_id>`. Always include the project name (`scylla-cluster-tests`) between `/tests/` and the UUID.
+
