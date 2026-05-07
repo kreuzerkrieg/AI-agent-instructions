@@ -11,6 +11,8 @@
 ### Run Identification
 Every SCT run produces logs with a consistent **8-character hex suffix** (e.g., `2730e03d`). All files from the same run share this suffix. **Always verify suffix consistency** across all downloaded files — if any file has a different suffix, warn the user immediately.
 
+**Argus URL format:** `https://argus.scylladb.com/tests/scylla-cluster-tests/<full-test-uuid>` — the project name `scylla-cluster-tests` is always part of the path. The full UUID is found in the SCT log (`test_id=<uuid>`).
+
 ### File Inventory (typical download from Argus)
 Each run produces 8 standard archives, plus optional core dump files when crashes occur:
 
