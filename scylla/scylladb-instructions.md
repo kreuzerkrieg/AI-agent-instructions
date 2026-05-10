@@ -187,12 +187,21 @@ sqlite3 -header -column testlog/sqlite_*.db "
 
 #### pytest worker logs (for cluster/Python tests)
 
-Cluster and Python test durations can be extracted from `testlog/pytest_log/pytest_gw<N>_<hash>.log`. Each worker log contains timestamped "before-test" markers and "SUCCEEDED"/"FAILED" entries:
+Cluster and Python test durations can be extracted from `testlog/pytest_log/pytest_gw<N>_<hash>.log`. Each worker log contains timestamped "before-test" markers and "SUCCEEDED"/"FAILED" entries.
+
+**Important parsing details:**
+- **before-test URLs use URL-encoding**: brackets appear as `%5B` and `%5D` — must use `urllib.parse.unquote()` to decode
+- **Test names end with `.dev.<N>` suffix** (e.g., `test_foo[s3].dev.1`) — strip this for matching
+- **Parametrize flavors**: `[local]`, `[s3]`, `[gs]` (note: GCS uses `gs`, not `gcs`)
+- **A single worker runs multiple tests sequentially** — track pending start times by test name (dict), not a single variable
+- **SUCCEEDED/FAILED line format**: `<timestamp>...Test <worker>::<test_name>.dev.<N> SUCCEEDED`
+- **before-test line format**: `<timestamp>...[ScyllaClusterManager]...before-test/<url_encoded_name>`
 
 ```bash
 python3 -u -c "
 import re, os
 from datetime import datetime
+from urllib.parse import unquote
 
 logdir = 'testlog/pytest_log'
 # Find the most recent log set by picking any gw0 file
@@ -207,16 +216,24 @@ for f in sorted(os.listdir(logdir)):
         continue
     with open(os.path.join(logdir, f)) as fh:
         lines = fh.readlines()
-    start_time = None
+    pending = {}  # test_name -> start_time (handles sequential tests per worker)
     for line in lines:
-        m = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+.*before-test/([^\s>]+)', line)
+        m = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+.*\[ScyllaClusterManager\].*before-test/([^\s>]+)', line)
         if m:
-            start_time = datetime.strptime(m.group(1), '%Y-%m-%d %H:%M:%S')
-        m2 = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+.*Test.*::([^\s]+)\s+(SUCCEEDED|FAILED)', line)
-        if m2 and start_time:
-            end_time = datetime.strptime(m2.group(1), '%Y-%m-%d %H:%M:%S')
-            tests[m2.group(2)] = (end_time - start_time).total_seconds(), m2.group(3)
-            start_time = None
+            ts = datetime.strptime(m.group(1), '%Y-%m-%d %H:%M:%S')
+            raw_name = unquote(m.group(2))  # decode %5B -> [, %5D -> ]
+            name = re.sub(r'\.dev\.\d+$', '', raw_name)  # strip .dev.1
+            pending[name] = ts
+            continue
+        m2 = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+.*::([\w\[\]_.%\-]+)\.dev\.\d+\s+(SUCCEEDED|FAILED)', line)
+        if m2:
+            ts = datetime.strptime(m2.group(1), '%Y-%m-%d %H:%M:%S')
+            name = m2.group(2)
+            status = m2.group(3)
+            if name in pending:
+                dur = (ts - pending[name]).total_seconds()
+                tests[name] = (dur, status)
+                del pending[name]
 
 for name, (dur, status) in sorted(tests.items(), key=lambda x: -x[1][0]):
     mark = '✅' if status == 'SUCCEEDED' else '❌'
@@ -225,10 +242,28 @@ print(f'\nTotal: {len(tests)} tests, {sum(1 for _,(d,s) in tests.items() if s==\
 "
 ```
 
+**Comparing parametrize flavors (local vs s3/gs):**
+```bash
+python3 -u -c "
+# After collecting 'tests' dict as above, group by base name and compare flavors:
+from collections import defaultdict
+grouped = defaultdict(dict)
+for name, (dur, status) in tests.items():
+    m = re.match(r'(.+)\[(local|s3|gs)\]$', name)
+    if m:
+        grouped[m.group(1)][m.group(2)] = (dur, status)
+
+for base, flavors in sorted(grouped.items(), key=lambda x: max(v[0] for v in x[1].values()), reverse=True):
+    if 'local' in flavors and ('s3' in flavors or 'gs' in flavors):
+        obj_key = 's3' if 's3' in flavors else 'gs'
+        delta = flavors[obj_key][0] - flavors['local'][0]
+        print(f'{base:<70} local={flavors[\"local\"][0]:>5.0f}s  {obj_key}={flavors[obj_key][0]:>5.0f}s  delta={delta:+.0f}s')
+"
+```
+
 **Key points:**
-- The log hash (e.g., `0104c`) identifies a specific test run; the script auto-detects the most recent one
+- The log hash (e.g., `cd00f`) identifies a specific test run; the script auto-detects the most recent one
 - Timestamps are second-granularity (from log lines), so sub-second tests show as 0–1s
-- To filter by parametrize variant (e.g., only `[s3]` tests), pipe through `grep '\[s3'`
 - Skip `pytest_main_<hash>.log` (main process log, not a worker)
 - Wall-clock time of the entire run: check timestamps of first and last "SUCCEEDED" entries across all worker logs
 
