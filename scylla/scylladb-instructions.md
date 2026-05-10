@@ -119,7 +119,8 @@ testlog/
 ├── s3_mock.log                          # S3/GCS mock server log (for object storage tests)
 ├── s3_proxy.log                         # S3 proxy log (toxiproxy)
 ├── minio.log                            # MinIO server log (for S3 tests)
-└── report/                              # Test report output (allure)
+└── report/                              # Test report output
+    └── pytest_cpp_<hash>.xml            # JUnit XML: all tests with timing, skip status, skip reasons
 ```
 
 ### Key files for investigating test failures
@@ -182,7 +183,7 @@ sqlite3 -header -column testlog/sqlite_*.db "
   FROM test_metrics;"
 ```
 
-**Note:** The SQLite database currently only contains Boost/C++ test metrics (not cluster/Python tests).
+**Note:** The SQLite database currently only contains Boost/C++ test metrics (not cluster/Python tests). For a unified view of all tests (including cluster/Python), use the JUnit XML report (`testlog/report/pytest_cpp_<hash>.xml`) which has timing and skip status for everything.
 
 #### pytest worker logs (for cluster/Python tests)
 
@@ -238,6 +239,55 @@ print(f'\nTotal: {len(tests)} tests, {sum(1 for _,(d,s) in tests.items() if s==\
 - **Cluster tests:** `10:29:50.651 \x1b[32mINFO\x1b[0m> ...` (pytest format with ANSI color codes)
 
 Duration can be computed from first-to-last timestamp in each file. Note that cluster test timestamps include ANSI escape codes that must be handled in regex patterns.
+
+#### JUnit XML report (definitive skip detection + accurate timing)
+
+The test run produces a JUnit XML report at `testlog/report/pytest_cpp_<hash>.xml` (e.g., `pytest_cpp_cd00f.xml`). This is the **authoritative source** for:
+- **Skipped tests**: `<testcase>` elements containing a `<skipped>` child element with a `message` attribute and `<properties>` containing `skip_reason` and `skip_type`.
+- **Accurate per-test timing**: the `time` attribute on each `<testcase>` (sub-second precision).
+- **Test identity**: `classname` (e.g., `cluster.test_tablets_migration`), `name` (full parametrized name), and `function_path`.
+
+**Structure of a skipped test entry:**
+```xml
+<testcase classname="cluster.test_tablets_migration"
+          name="test_node_failure_during_tablet_migration[gs-revert_migration-destination].dev.1"
+          time="10.761"
+          function_path="test/cluster/test_tablets_migration.py::test_node_failure_during_tablet_migration">
+  <properties>
+    <property name="skip_type" value="env" />
+    <property name="skip_reason" value="GCS flavor of this test gets stuck, deeper investigation is needed" />
+  </properties>
+  <skipped type="pytest.skip" message="[env] GCS flavor of this test gets stuck, deeper investigation is needed">...</skipped>
+</testcase>
+```
+
+**Important:** Skipped tests still have a non-zero `time` attribute (time spent in setup/teardown before the skip was triggered). **Never use duration heuristics** to detect skips — always check for the `<skipped>` element in the XML.
+
+**Useful queries:**
+```python
+import xml.etree.ElementTree as ET
+
+tree = ET.parse('testlog/report/pytest_cpp_<hash>.xml')
+root = tree.getroot()
+
+# Get all skipped tests with reasons
+for tc in root.iter('testcase'):
+    skip_el = tc.find('skipped')
+    if skip_el is not None:
+        print(f"{tc.get('name')}: {skip_el.get('message')}")
+
+# Get all non-skipped tests sorted by duration
+tests = [(tc.get('name'), float(tc.get('time', 0)))
+         for tc in root.iter('testcase') if tc.find('skipped') is None]
+for name, t in sorted(tests, key=lambda x: -x[1])[:20]:
+    print(f"{t:7.1f}s  {name}")
+```
+
+**Key points:**
+- The XML covers **all tests** (both Boost/C++ and cluster/Python) in a single file
+- `skip_type` values: `"env"` (environment/infrastructure reason), `"bug"` (known bug reference)
+- When comparing flavors (local vs s3 vs gs), always exclude skipped tests from timing comparisons — their `time` value is meaningless for performance analysis
+- The `<hash>` in the filename matches the hash used in pytest worker logs and other log files
 
 ## Useful `test.py` Command-Line Arguments
 
