@@ -113,7 +113,9 @@ testlog/
 │   ├── <worker>.<suite>.<test>.<mode>.<run#>_cluster.log  # Per-test cluster manager log
 │   └── scylla-<worker>-<id>/           # Scylla node working directories (data, commitlog, etc.)
 ├── pytest_log/                          # Per-worker pytest logs (pytest_gw0_<hash>.log)
-├── pytest_tests_logs/                   # Per-test teardown/setup logs
+├── pytest_tests_logs/                   # Per-test teardown/setup logs (all tests, boost + cluster)
+│   └── <suite>-<file>-<test>.dev.N-teardown-<hash>.log
+├── sqlite_<hash>.db                     # SQLite database with test metrics (timing, CPU, memory)
 ├── s3_mock.log                          # S3/GCS mock server log (for object storage tests)
 ├── s3_proxy.log                         # S3 proxy log (toxiproxy)
 ├── minio.log                            # MinIO server log (for S3 tests)
@@ -145,7 +147,46 @@ sed -n '5000,5100p' testlog/<mode>/failed_test/<test_dir>/scylla-gw16-13.log
 
 ### Retrieving per-test execution times
 
-After a test run completes, per-test durations can be extracted from the pytest worker logs in `testlog/pytest_log/`. Each worker log (`pytest_gw<N>_<hash>.log`) contains timestamped "before-test" markers and "SUCCEEDED"/"FAILED" entries. Use this script to compute durations:
+#### SQLite database (preferred for Boost/C++ tests)
+
+Each test run produces a SQLite database at `testlog/sqlite_<hash>.db` (e.g., `sqlite_0104c.db`). The `<hash>` matches the log hash used in other log filenames. This is the most accurate source for Boost test timing data.
+
+**Schema overview:**
+- **`tests`** — test identity: `id`, `test_name`, `directory`, `mode`, `run_id`
+- **`test_metrics`** — per-test measurements: `time_taken` (wall-clock, sub-ms precision), `user_sec`, `system_sec` (CPU breakdown), `memory_peak` (bytes), `time_start`, `time_end`, `success`
+- **`system_resource_metrics`** — system-wide CPU/memory snapshots over time
+- **`cgroup_memory_metrics`** — per-test cgroup memory usage over time
+
+**Useful queries:**
+```bash
+# All tests sorted by duration (longest first)
+sqlite3 -header -column testlog/sqlite_*.db "
+  SELECT t.test_name, tm.time_taken, tm.user_sec, tm.system_sec,
+         tm.memory_peak, tm.success
+  FROM tests t JOIN test_metrics tm ON t.id = tm.test_id
+  ORDER BY tm.time_taken DESC;"
+
+# Only S3/GCS tests
+sqlite3 -header -column testlog/sqlite_*.db "
+  SELECT t.test_name, tm.time_taken, tm.memory_peak
+  FROM tests t JOIN test_metrics tm ON t.id = tm.test_id
+  WHERE t.test_name LIKE '%s3%' OR t.test_name LIKE '%gcs%'
+  ORDER BY tm.time_taken DESC;"
+
+# Summary statistics
+sqlite3 -header -column testlog/sqlite_*.db "
+  SELECT count(*) as count, sum(success) as passed,
+         round(sum(time_taken),1) as total_sec,
+         round(avg(time_taken),1) as avg_sec,
+         round(max(time_taken),1) as max_sec
+  FROM test_metrics;"
+```
+
+**Note:** The SQLite database currently only contains Boost/C++ test metrics (not cluster/Python tests).
+
+#### pytest worker logs (for cluster/Python tests)
+
+Cluster and Python test durations can be extracted from `testlog/pytest_log/pytest_gw<N>_<hash>.log`. Each worker log contains timestamped "before-test" markers and "SUCCEEDED"/"FAILED" entries:
 
 ```bash
 python3 -u -c "
@@ -161,7 +202,7 @@ log_hash = gw0_files[0].split('_')[-1].replace('.log', '')
 
 tests = {}
 for f in sorted(os.listdir(logdir)):
-    if not f.startswith('pytest_gw') or not f.endswith(f'_{log_hash}.log'):
+    if not f.startswith('pytest_gw') or not f.endswith(f'_{log_hash}.log') or 'main' in f:
         continue
     with open(os.path.join(logdir, f)) as fh:
         lines = fh.readlines()
@@ -184,10 +225,19 @@ print(f'\nTotal: {len(tests)} tests, {sum(1 for _,(d,s) in tests.items() if s==\
 ```
 
 **Key points:**
-- The log hash (e.g., `7084c`) identifies a specific test run; the script auto-detects the most recent one
+- The log hash (e.g., `0104c`) identifies a specific test run; the script auto-detects the most recent one
 - Timestamps are second-granularity (from log lines), so sub-second tests show as 0–1s
 - To filter by parametrize variant (e.g., only `[s3]` tests), pipe through `grep '\[s3'`
+- Skip `pytest_main_<hash>.log` (main process log, not a worker)
 - Wall-clock time of the entire run: check timestamps of first and last "SUCCEEDED" entries across all worker logs
+
+#### pytest_tests_logs (per-test teardown logs)
+
+`testlog/pytest_tests_logs/` contains one log file per test case (both Boost and cluster), named `<suite>-<file>-<test>.dev.N-teardown-<hash>.log`. These contain setup/teardown output and the last 300 lines of C++ test stdout (for Boost tests). Timestamps are embedded in log lines:
+- **Boost tests:** `INFO  2026-05-10 10:29:01,869 ...` (Seastar logger format)
+- **Cluster tests:** `10:29:50.651 \x1b[32mINFO\x1b[0m> ...` (pytest format with ANSI color codes)
+
+Duration can be computed from first-to-last timestamp in each file. Note that cluster test timestamps include ANSI escape codes that must be handled in regex patterns.
 
 ## Useful `test.py` Command-Line Arguments
 
