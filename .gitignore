@@ -4,6 +4,7 @@
 
 # Whitelist repo infrastructure
 !.gitignore
+!.gitmodules
 !LICENSE
 !README.md
 
@@ -11,3 +12,5 @@
 !global-agents-instructions.md
 !scylla/
 !scylla/**
+!personal/
+!personal/**

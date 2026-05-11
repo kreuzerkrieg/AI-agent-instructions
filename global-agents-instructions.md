@@ -40,9 +40,7 @@ Project-specific instructions are organized under subdirectories of this config 
 
 **Always read the relevant file at the start of a session** using `read_file` — do not rely on memory from prior conversations. If a file does not exist yet, notify the user so it can be created.
 
----
-
-## Scratch / Temporary Files (CLion-specific)
+ni## Scratch / Temporary Files (CLion-specific)
 When creating **any** temporary or scratch files — analysis docs, migration call-chain notes, diagrams, test timing reports, query results, generated tables, or any other output that is not a source-code change — save them under the CLion scratches directory instead of polluting the repository tree:
 ```
 ~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/
