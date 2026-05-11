@@ -487,167 +487,14 @@ After fixing, re-run the script to confirm all modes show `✓ MATCH`.
 Commit each fix to the commit it logically belongs to.
 See `docs/dev/compare-build-systems.md` for full documentation.
 
-## Commit Organization
+## Commit Organization, PR Cover Letter, and Refine PR
 
-### Principles
-- Each commit should contain **one logical change** — if the commit message needs "and" or "also", that's a hint it may need to be split further.
-- Every commit **must compile** and **pass all tests** (bisectability). Never leave the tree in a broken state between commits.
-- A reviewer should be able to understand each commit in isolation without reading the full PR first.
-- Order commits so that each builds on the previous — **dependencies flow forward**.
+These topics are covered in the **global agent instructions** (`global-agents-instructions.md`). The global rules apply here with the following ScyllaDB-specific additions:
 
-### Commit Message Format
+### ScyllaDB Module Prefixes
+Common module prefixes for commit messages: `db:`, `sstables_loader:`, `raft:`, `cql3:`, `compaction:`, `sstables:`, `locator:`, `alternator:`, `service:`, `replica:`, `test:`, `dht:`, `gms:`, `message:`.
 
-#### Structure
-```
-module: short imperative description
-                                        ← blank line is REQUIRED
-Optional longer body explaining *why* the change is needed and any
-non-obvious design decisions. Wrap at ~72 characters.
-
-Fixes #1234          (optional: reference to GitHub/JIRA issue)
-```
-
-**Caution with `git commit -m`:** A single `-m` flag puts everything on one line. To get the blank line, either use an editor (`git commit` without `-m`), or pass two separate `-m` flags:
-```bash
-git commit -m "module: short description" -m "Body explaining why."
-```
-
-#### Subject line (first line)
-- **Module prefix** matches the directory or subsystem being changed: `db:`, `sstables_loader:`, `test:`, `raft:`, `cql3:`, `compaction:`, `sstables:`, `locator:`, etc.
-- Multiple modules: `cql3, transport: fix ...` — whole tree: `tree: ...`
-- Keep it short — ~50 characters is ideal, 72 is the hard max.
-- Use **imperative mood**: "add", "fix", "remove", "extract", "change" — not "added", "fixes", "removing".
-- Describe *what* the commit does, not *how* — the diff shows the how.
-- Do **not** end with a period.
-
-#### Body (optional but encouraged for non-trivial changes)
-- Separated from the subject by **one blank line**.
-- Explains **why** the change is needed — motivation, context, trade-offs.
-- Does **not** repeat what is obvious from the diff (avoid "changed X to Y in file Z").
-- Wrap lines at ~72 characters for readability in `git log`.
-- For bug-fix commits, reference the issue: `Fixes #1234` or `Refs scylladb/scylladb#1234`.
-
-#### Examples
-
-Good:
-```
-db: extract snapshot_sstables TTL into class constant
-
-Move the TTL value used for snapshot_sstables rows from a local
-variable in insert_snapshot_sstable() to a class-level constant
-SNAPSHOT_SSTABLES_TTL_SECONDS, making it reusable by other methods.
-```
-```
-sstables_loader: change sys_dist_ks to sharded reference
-
-This allows accessing the distributed keyspace from any shard via
-.local(), which will be needed to update SSTable download status
-from within invoke_on_all.
-```
-```
-test: verify progress reporting in tablet restore test
-```
-
-Bad:
-```
-fix stuff                              # no module prefix, vague
-```
-```
-db: Added new column and method.       # past tense, period, "and" → split
-```
-```
-sstables_loader: Change the _sys_dist_ks member from
-db::system_distributed_keyspace& to sharded<...>&, update all
-callers to use .local(), and also clean up includes
-                                       # too long, mechanics not motivation, "and also" → split
-```
-
-### What Belongs in a Single Commit
-- A pure refactoring (extract constant, rename, move code)
-- A new type, struct, or method (declaration + implementation)
-- A signature change and all its callers updated together
-- A feature wired into its call site
-- A test for the feature
-- A pure formatting change
-
-### What Must Be Separate Commits
-- **Formatting vs. functional changes** — if you add an `if` statement and have to re-indent the code block under it, that's two commits: (1) add the `if` with minimal formatting, (2) fix indentation. Similarly, if adding arguments makes a function call too long: (1) add the arguments, (2) reformat/wrap lines.
-- **Refactoring vs. new functionality** — extract a constant or change a type first, then use it.
-- **Schema/data model changes vs. business logic** — add a new column/field first, then the code that uses it.
-- **Infrastructure changes vs. feature code** — change a parameter type (e.g., `T&` → `sharded<T>&`) in one commit, use the new capability in the next.
-- **Tests vs. implementation** — test changes in their own commit (unless trivially small and tightly coupled).
-
-### How to Split Commits for Review
-
-When preparing commits for contribution — whether splitting a single WIP
-commit or reorganizing a series of commits that don't follow the
-granularity guidelines above — use this procedure.
-
-#### 1. Analyze the diff
-```bash
-git diff HEAD~1 HEAD          # Review the full change
-git diff HEAD~1 HEAD --stat   # See which files changed
-```
-
-#### 2. Identify logical groups
-Categorize each change into one of:
-- **Pure refactoring** — extracting constants, renaming, moving code without behavior change
-- **Schema/model changes** — new columns, struct fields, type changes
-- **Formatting** — re-indentation, line wrapping, whitespace-only changes
-- **New methods/APIs** — declarations + implementations of new functionality
-- **Infrastructure/plumbing** — type changes, include cleanup, parameter changes
-- **Feature wiring** — connecting new APIs to call sites
-- **Tests** — new or updated test assertions
-
-#### 3. Determine dependency order
-Build a dependency graph: which changes require others to compile?
-```
-refactoring → schema changes → new methods → plumbing → wiring → tests
-                                              ↑
-                                    formatting (independent)
-```
-
-#### 4. Execute the split
-```bash
-# Save the current state
-git stash                              # Stash any uncommitted work
-WIP_SHA=$(git rev-parse HEAD)          # Remember the WIP commit
-
-# Reset to parent
-git reset --hard HEAD~1
-
-# For each logical commit, apply just those changes:
-#   - Use python/sed for precise file edits, or
-#   - Copy the final file state and use `git add -p` for partial staging
-#   - Verify with: diff <(git show $WIP_SHA:<file>) <file>
-
-# After all commits, verify the final state matches the original:
-git diff $WIP_SHA HEAD --stat          # Should be empty or trivial whitespace
-```
-
-#### 5. Verify
-- `git log --oneline` — read commit subjects as a story; each should make sense alone.
-- `git diff <original_wip> HEAD --stat` — final state should match the original (or improve on it).
-- If you find yourself writing "and" or "also" in a commit message, that's a hint you may need to split further.
-
-### Example Split
-
-A WIP commit that "adds download tracking with progress reporting" might split into:
-
-| Order | Commit | Type |
-|-------|--------|------|
-| 1 | `db: extract snapshot_sstables TTL into class constant` | Refactoring |
-| 2 | `db: add downloaded column to snapshot_sstables` | Schema change |
-| 3 | `db: reformat read_row lambda in get_snapshot_sstables` | Formatting |
-| 4 | `db: add update_sstable_download_status method` | New API |
-| 5 | `sstables_loader: clean up includes` | Include cleanup |
-| 6 | `sstables_loader: change sys_dist_ks to sharded reference` | Plumbing |
-| 7 | `sstables_loader: return shared_sstable from attach_sstable` | Plumbing |
-| 8 | `sstables_loader: mark sstables as downloaded after attaching` | Feature wiring |
-| 9 | `sstables_loader: add progress tracking to tablet restore task` | Feature |
-| 10 | `test: verify progress reporting in tablet restore test` | Test |
-
-### Formatting Commits
+### Formatting Commits (C++)
 When creating pure-formatting commits, always use the project's `.clang-format` rather than formatting by hand:
 ```bash
 # Format specific lines in a file
@@ -658,72 +505,11 @@ clang-format --style=file -i <file>
 ```
 Key `.clang-format` settings to be aware of: `AlignAfterOpenBracket: Align` (arguments align to opening paren), `BinPackArguments: false` / `BinPackParameters: false` (one arg per line when wrapping), `ColumnLimit: 160`, `IndentWidth: 4`.
 
-### Common Pitfalls
-- **Mixing formatting with logic** — the #1 review complaint. Always separate.
-- **Changing a signature and adding new callers in the same commit** — split into: (1) change signature + update existing callers, (2) add new callers.
-- **Including unrelated cleanup** — include hygiene (adding missing `#include`s, removing duplicates), trailing whitespace fixes, or other mechanical cleanup must be in their own commit. Even if you're already touching the same file for a functional change, don't bundle cleanup into it — the "also" in your commit message ("change type, and also clean up includes") is a clear signal to split.
-- **Reordering functions alongside functional changes** — never reorder (move) function definitions in the same commit that applies functional changes to the code. Reordering inflates the diff, obscures the real change, and makes review painful. If reordering is necessary, put it in a separate commit.
-- **Giant "add feature" commits** — break into: model → API → wiring → tests.
-- **Forgetting compilability** — after planning the split, mentally verify that removing any later commit leaves a compiling tree.
+### PR Issue References
+Use full JIRA URLs for issue references: `Fixes: https://scylladb.atlassian.net/browse/SCYLLADB-986`.
 
-### Minimal Diffs — Do Not Touch What You Don't Need To
-- **Never rename existing variables** unless the rename is the explicit purpose of the commit. If a variable is called `cln`, keep it `cln`; do not rename it to `client` (or vice versa) just because you think it reads better. Gratuitous renames inflate the diff and add reviewer burden for zero functional value.
-- **Never change comment style** without a functional reason. Do not replace `//` with `///` (or vice versa), do not rephrase comments that already convey the same meaning, and do not "beautify" or reword comments whose content is not changing. Leave existing comments untouched unless the code they describe is changing.
-- **Never add or remove blank lines, comments, or commented-out code** that is unrelated to the task. If it existed before and is not part of the change, leave it as-is.
-- **Never add Doxygen-style `///` comments** to declarations/definitions unless the project already uses `///` in that file or the user explicitly requests it. The project convention for regular comments is `//`.
-- **Preserve existing code structure** — do not reorder includes, reorder function parameters, or change formatting unless that is the explicit task.
-- In short: the diff should contain **only** the lines required for the functional change. Every extra line the reviewer has to read is wasted effort.
-
-### Handling Review Comments — Think Before You Apply
-- **Never blindly apply review comments.** Invest time in understanding what the reviewer is actually asking and whether the comment is correct. Reviewers can misread the code, misunderstand the intent, or miss context that you (the author) have.
-- **Verify the reviewer's assumptions.** Does the reviewer understand how the internal machinery works? Did they trace the actual code path, or are they guessing based on a surface reading? For example, a reviewer may claim "this will throw because X calls Y" — check whether X actually calls Y in this context before changing anything.
-- **Evaluate whether the suggestion improves correctness or just reshuffles code.** Some review comments are cosmetic preferences disguised as bug reports. If a comment would cause you to split a simple function into two clients, add extra semaphores, or restructure working code with no measurable benefit, push back or ask for clarification.
-- **Consider whether the change would break the test's intent.** Tests are written a specific way for a reason. If a reviewer suggests "use a separate client here", ask yourself whether the test is *supposed* to exercise the fixture with that exact semaphore — maybe the whole point is to verify the fixture handles constrained resources.
-- **Dead code observations may be wrong.** A parameter that looks unused in one function may exist because callers rely on the signature for consistency, or because it documents an intent that will be used in a follow-up. Don't delete parameters just because a reviewer says "dead code" — verify the full picture first.
-- **When in doubt, present your reasoning to the user** rather than silently applying the change. Say "the reviewer suggests X, but I believe the current code is correct because Y — should I apply it anyway?"
-
-## PR Cover Letter
-
-Every GitHub PR needs a **title** and a **description body**. The description should give a reviewer enough context to understand the change without reading every commit first.
-
-### Title
-Use the same `module: short description` format as commit messages. If the PR spans multiple modules, use the primary one or a broader scope (e.g., `sstables_loader: add progress tracking to tablet restore task`).
-
-### Body Format
-- The PR body is rendered as **GitHub Markdown** — use `###` headings, `**bold**`, backtick-quoted symbols, etc.
-- Do **not** hard-wrap lines in the PR body; let GitHub handle wrapping. Each paragraph should be a single long line.
-- This is different from commit message bodies, which are wrapped at ~72 characters.
-
-### Body Structure
-
-1. **Problem** — what is broken, missing, or inadequate. One or two sentences.
-2. **Changes** — a summary of what the series does, grouped logically. Not a commit-by-commit list — describe the *what* and *why* at a higher level than individual commits.
-3. **Issue reference** — `Fixes: <URL>` on its own line. Use the full JIRA URL (e.g., `Fixes: https://scylladb.atlassian.net/browse/SCYLLADB-986`).
-4. **Backport decision** — one line stating whether backporting is needed and why:
-    - **Bug fix (especially critical/production)** → backport to all affected supported versions.
-    - **New feature** → no backport needed.
-    - **Refactoring only** → no backport needed.
-
-### Example
-```
-sstables_loader: add progress tracking to tablet restore task
-
-This series adds per-SSTable progress tracking to the tablet restore task. Previously, the `restore_tablets` task reported no progress — `progress_total` and `progress_completed` were always zero, making it impossible to monitor how far along a restore operation is.
-
-### Changes
-
-A `downloaded` boolean column added to `snapshot_sstables`, with a method to update it. After each SSTable is attached during restore, it is marked as downloaded.
-
-Infrastructure plumbing: `sys_dist_ks` changed to a sharded reference and `attach_sstable` changed to return the attached SSTable.
-
-A periodic timer that queries `snapshot_sstables` every 5 seconds and exposes downloaded/total counts via `get_progress()`.
-
-A test assertion verifying `progress_total > 0` and `progress_completed == progress_total` after a successful restore.
-
-Fixes: https://scylladb.atlassian.net/browse/SCYLLADB-986
-
-No backport needed since this is a new feature targeting tablet-aware restore.
-```
+### Doxygen Comments
+Never add Doxygen-style `///` comments to declarations/definitions unless the project already uses `///` in that file or the user explicitly requests it. The project convention for regular comments is `//`.
 
 ## Test Philosophy
 - **No sleeps** — use condition-based waiting; sleeps cause flakiness and slow tests
@@ -785,21 +571,4 @@ curl -s -X POST https://staging.backtrace.scylladb.com/api/backtrace \
 - `.github/instructions/cpp.instructions.md` — Detailed C++ rules
 - `.github/instructions/python.instructions.md` — Detailed Python rules
 - `CONTRIBUTING.md`, `HACKING.md` — Contributor onboarding
-
-## Refine PR
-
-When the user says **"refine PR"**, perform the following sequence:
-
-1. **List all commits** in the PR (`git log --oneline upstream/master..HEAD`).
-2. **For each commit**, review the diff (`git show <sha>`) and check:
-   - **Commit message**: subject follows `module: short description` format, blank line separates subject from body, body explains *why* not *what*, wrapped at ~72 chars.
-   - **Single logical change**: if the commit message needs "and" or "also", it likely needs splitting.
-   - **No unrelated changes**: formatting fixes, renames, include cleanups, or test skips that don't belong with the functional change must be in separate commits or removed.
-   - **Comments in code**: verify that added comments accurately describe what the code actually does — not what a previous iteration did or what was planned but not implemented.
-   - **No unnecessary changes**: no gratuitous renames, no style-only changes mixed with logic, no dead code additions.
-3. **Split commits** that contain unrelated changes (e.g., a commit that both changes storage logic and adds test skips should be split so each change goes to its logical home).
-4. **Squash or reorder** commits where one undoes or replaces another (e.g., commit A adds a try/fallback approach, commit B replaces it with a different approach → combine into one commit with the final approach).
-5. **Move misplaced hunks** to the commit they logically belong to (e.g., test skips belong in the commit that adds the test parametrization, not in an unrelated sstables commit).
-6. **Verify compilability**: mentally confirm that each commit in the final sequence compiles independently — removing any later commit should not break the build.
-7. **Final diff check**: `git diff <original_HEAD> HEAD --stat` should show only intentional differences (removed noise, fixed skips, etc.) — no accidental content loss.
 
