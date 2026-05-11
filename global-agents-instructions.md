@@ -34,7 +34,7 @@ Project-specific instructions are organized under subdirectories of this config 
 
 | File | When to load | Description |
 |------|-------------|-------------|
-| `scylla/scylladb-instructions.md` | Working in **scylladb/scylladb** repo (the main C++ database) | Build system, C++/Python code style, commit organization, PR format, test philosophy, backtrace decoding |
+| `scylla/scylladb-instructions.md` | Working in **scylladb/scylladb** repo (the main C++ database) | Build system, C++/Python code style, test philosophy, backtrace decoding |
 | `scylla/sct-instructions.md` | Working in **scylla-cluster-tests** repo (or any SCT task) | SCT-specific conventions, architecture, analysis workflows, metric mappings |
 | `scylla/scylladb_all_metrics_mapping.md` | Reference for SCT metric analysis | Full mapping of ScyllaDB Prometheus metrics |
 
@@ -78,6 +78,251 @@ Never take claims at face value — not from the user, not from review comments,
   - **Cherry-pick rebuild:** `git reset --hard <SHA>~1`, then `git cherry-pick --no-commit <SHA> && git commit -F <msg-file>`, then `git cherry-pick <SHA>..<original-HEAD>`.
   - **Fixup + autosquash:** `git commit --fixup=<SHA>` (content) or `git commit --allow-empty --fixup=amend:<SHA> -F <msg-file>` (message), then `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1` — the `GIT_SEQUENCE_EDITOR=true` prevents any editor from opening, making the `-i` flag safe.
 - To amend the most recent commit message: write the new message to a file, then `git commit --amend -F <msg-file>`. Never use `git commit --amend` without `-m` or `-F` — that opens an editor.
+
+---
+
+## Commit Organization
+
+### Principles
+- Each commit should contain **one logical change** — if the commit message needs "and" or "also", that's a hint it may need to be split further.
+- Every commit **must compile** and **pass all tests** (bisectability). Never leave the tree in a broken state between commits.
+- A reviewer should be able to understand each commit in isolation without reading the full PR first.
+- Order commits so that each builds on the previous — **dependencies flow forward**.
+
+### Commit Message Format
+
+#### Structure
+```
+module: short imperative description
+                                        ← blank line is REQUIRED
+Optional longer body explaining *why* the change is needed and any
+non-obvious design decisions. Wrap at ~72 characters.
+
+Fixes #1234          (optional: reference to GitHub/JIRA issue)
+```
+
+**Caution with `git commit -m`:** A single `-m` flag puts everything on one line. To get the blank line, either use an editor (`git commit` without `-m`), or pass two separate `-m` flags:
+```bash
+git commit -m "module: short description" -m "Body explaining why."
+```
+
+#### Subject line (first line)
+- **Module prefix** matches the directory or subsystem being changed (e.g., `db:`, `raft:`, `api:`, `test:`, etc.).
+- Multiple modules: `cql3, transport: fix ...` — whole tree: `tree: ...`
+- Keep it short — ~50 characters is ideal, 72 is the hard max.
+- Use **imperative mood**: "add", "fix", "remove", "extract", "change" — not "added", "fixes", "removing".
+- Describe *what* the commit does, not *how* — the diff shows the how.
+- Do **not** end with a period.
+
+#### Body (optional but encouraged for non-trivial changes)
+- Separated from the subject by **one blank line**.
+- Explains **why** the change is needed — motivation, context, trade-offs.
+- Does **not** repeat what is obvious from the diff (avoid "changed X to Y in file Z").
+- Wrap lines at ~72 characters for readability in `git log`.
+- For bug-fix commits, reference the issue: `Fixes #1234` or `Refs org/repo#1234`.
+
+#### Examples
+
+Good:
+```
+db: extract snapshot TTL into class constant
+
+Move the TTL value from a local variable in insert_snapshot()
+to a class-level constant SNAPSHOT_TTL_SECONDS, making it
+reusable by other methods.
+```
+```
+loader: change dependency to sharded reference
+
+This allows accessing the service from any shard via .local(),
+which will be needed to update download status from within
+invoke_on_all.
+```
+```
+test: verify progress reporting in restore test
+```
+
+Bad:
+```
+fix stuff                              # no module prefix, vague
+```
+```
+db: Added new column and method.       # past tense, period, "and" → split
+```
+```
+loader: Change the member from T& to sharded<T>&, update all
+callers to use .local(), and also clean up includes
+                                       # too long, mechanics not motivation, "and also" → split
+```
+
+### What Belongs in a Single Commit
+- A pure refactoring (extract constant, rename, move code)
+- A new type, struct, or method (declaration + implementation)
+- A signature change and all its callers updated together
+- A feature wired into its call site
+- A test for the feature
+- A pure formatting change
+
+### What Must Be Separate Commits
+- **Formatting vs. functional changes** — if you add an `if` statement and have to re-indent the code block under it, that's two commits: (1) add the `if` with minimal formatting, (2) fix indentation. Similarly, if adding arguments makes a function call too long: (1) add the arguments, (2) reformat/wrap lines.
+- **Refactoring vs. new functionality** — extract a constant or change a type first, then use it.
+- **Schema/data model changes vs. business logic** — add a new column/field first, then the code that uses it.
+- **Infrastructure changes vs. feature code** — change a parameter type (e.g., `T&` → `sharded<T>&`) in one commit, use the new capability in the next.
+- **Tests vs. implementation** — test changes in their own commit (unless trivially small and tightly coupled).
+
+### How to Split Commits for Review
+
+When preparing commits for contribution — whether splitting a single WIP
+commit or reorganizing a series of commits that don't follow the
+granularity guidelines above — use this procedure.
+
+#### 1. Analyze the diff
+```bash
+git diff HEAD~1 HEAD          # Review the full change
+git diff HEAD~1 HEAD --stat   # See which files changed
+```
+
+#### 2. Identify logical groups
+Categorize each change into one of:
+- **Pure refactoring** — extracting constants, renaming, moving code without behavior change
+- **Schema/model changes** — new columns, struct fields, type changes
+- **Formatting** — re-indentation, line wrapping, whitespace-only changes
+- **New methods/APIs** — declarations + implementations of new functionality
+- **Infrastructure/plumbing** — type changes, include cleanup, parameter changes
+- **Feature wiring** — connecting new APIs to call sites
+- **Tests** — new or updated test assertions
+
+#### 3. Determine dependency order
+Build a dependency graph: which changes require others to compile?
+```
+refactoring → schema changes → new methods → plumbing → wiring → tests
+                                              ↑
+                                    formatting (independent)
+```
+
+#### 4. Execute the split
+```bash
+# Save the current state
+git stash                              # Stash any uncommitted work
+WIP_SHA=$(git rev-parse HEAD)          # Remember the WIP commit
+
+# Reset to parent
+git reset --hard HEAD~1
+
+# For each logical commit, apply just those changes:
+#   - Use python/sed for precise file edits, or
+#   - Copy the final file state and use `git add -p` for partial staging
+#   - Verify with: diff <(git show $WIP_SHA:<file>) <file>
+
+# After all commits, verify the final state matches the original:
+git diff $WIP_SHA HEAD --stat          # Should be empty or trivial whitespace
+```
+
+#### 5. Verify
+- `git log --oneline` — read commit subjects as a story; each should make sense alone.
+- `git diff <original_wip> HEAD --stat` — final state should match the original (or improve on it).
+- If you find yourself writing "and" or "also" in a commit message, that's a hint you may need to split further.
+
+### Example Split
+
+A WIP commit that "adds download tracking with progress reporting" might split into:
+
+| Order | Commit | Type |
+|-------|--------|------|
+| 1 | `db: extract snapshot TTL into class constant` | Refactoring |
+| 2 | `db: add downloaded column to snapshot table` | Schema change |
+| 3 | `db: reformat read_row lambda` | Formatting |
+| 4 | `db: add update_download_status method` | New API |
+| 5 | `loader: clean up includes` | Include cleanup |
+| 6 | `loader: change dependency to sharded reference` | Plumbing |
+| 7 | `loader: return shared object from attach method` | Plumbing |
+| 8 | `loader: mark items as downloaded after attaching` | Feature wiring |
+| 9 | `loader: add progress tracking to restore task` | Feature |
+| 10 | `test: verify progress reporting in restore test` | Test |
+
+### Common Pitfalls
+- **Mixing formatting with logic** — the #1 review complaint. Always separate.
+- **Changing a signature and adding new callers in the same commit** — split into: (1) change signature + update existing callers, (2) add new callers.
+- **Including unrelated cleanup** — include hygiene (adding missing `#include`s, removing duplicates), trailing whitespace fixes, or other mechanical cleanup must be in their own commit. Even if you're already touching the same file for a functional change, don't bundle cleanup into it — the "also" in your commit message ("change type, and also clean up includes") is a clear signal to split.
+- **Reordering functions alongside functional changes** — never reorder (move) function definitions in the same commit that applies functional changes to the code. Reordering inflates the diff, obscures the real change, and makes review painful. If reordering is necessary, put it in a separate commit.
+- **Giant "add feature" commits** — break into: model → API → wiring → tests.
+- **Forgetting compilability** — after planning the split, mentally verify that removing any later commit leaves a compiling tree.
+
+### Minimal Diffs — Do Not Touch What You Don't Need To
+- **Never rename existing variables** unless the rename is the explicit purpose of the commit. If a variable is called `cln`, keep it `cln`; do not rename it to `client` (or vice versa) just because you think it reads better. Gratuitous renames inflate the diff and add reviewer burden for zero functional value.
+- **Never change comment style** without a functional reason. Do not replace `//` with `///` (or vice versa), do not rephrase comments that already convey the same meaning, and do not "beautify" or reword comments whose content is not changing. Leave existing comments untouched unless the code they describe is changing.
+- **Never add or remove blank lines, comments, or commented-out code** that is unrelated to the task. If it existed before and is not part of the change, leave it as-is.
+- **Never add Doxygen-style `///` comments** to declarations/definitions unless the project already uses `///` in that file or the user explicitly requests it.
+- **Preserve existing code structure** — do not reorder includes, reorder function parameters, or change formatting unless that is the explicit task.
+- In short: the diff should contain **only** the lines required for the functional change. Every extra line the reviewer has to read is wasted effort.
+
+### Handling Review Comments — Think Before You Apply
+- **Never blindly apply review comments.** Invest time in understanding what the reviewer is actually asking and whether the comment is correct. Reviewers can misread the code, misunderstand the intent, or miss context that you (the author) have.
+- **Verify the reviewer's assumptions.** Does the reviewer understand how the internal machinery works? Did they trace the actual code path, or are they guessing based on a surface reading?
+- **Evaluate whether the suggestion improves correctness or just reshuffles code.** Some review comments are cosmetic preferences disguised as bug reports.
+- **Consider whether the change would break the test's intent.** Tests are written a specific way for a reason.
+- **Dead code observations may be wrong.** A parameter that looks unused in one function may exist because callers rely on the signature for consistency, or because it documents an intent that will be used in a follow-up. Don't delete parameters just because a reviewer says "dead code" — verify the full picture first.
+- **When in doubt, present your reasoning to the user** rather than silently applying the change. Say "the reviewer suggests X, but I believe the current code is correct because Y — should I apply it anyway?"
+
+## PR Cover Letter
+
+Every PR needs a **title** and a **description body**. The description should give a reviewer enough context to understand the change without reading every commit first.
+
+### Title
+Use the same `module: short description` format as commit messages. If the PR spans multiple modules, use the primary one or a broader scope.
+
+### Body Format
+- The PR body is rendered as **Markdown** — use `###` headings, `**bold**`, backtick-quoted symbols, etc.
+- Do **not** hard-wrap lines in the PR body; let the platform handle wrapping. Each paragraph should be a single long line.
+- This is different from commit message bodies, which are wrapped at ~72 characters.
+
+### Body Structure
+
+1. **Problem** — what is broken, missing, or inadequate. One or two sentences.
+2. **Changes** — a summary of what the series does, grouped logically. Not a commit-by-commit list — describe the *what* and *why* at a higher level than individual commits.
+3. **Issue reference** — `Fixes: <URL>` on its own line (e.g., `Fixes: https://github.com/org/repo/issues/123` or a JIRA URL).
+4. **Backport decision** — one line stating whether backporting is needed and why:
+    - **Bug fix (especially critical/production)** → backport to all affected supported versions.
+    - **New feature** → no backport needed.
+    - **Refactoring only** → no backport needed.
+
+### Example
+```
+loader: add progress tracking to restore task
+
+This series adds per-item progress tracking to the restore task. Previously, the task reported no progress — `progress_total` and `progress_completed` were always zero, making it impossible to monitor how far along a restore operation is.
+
+### Changes
+
+A `downloaded` boolean column added to `snapshot_items`, with a method to update it. After each item is attached during restore, it is marked as downloaded.
+
+Infrastructure plumbing: dependency changed to a sharded reference and `attach_item` changed to return the attached object.
+
+A periodic timer that queries `snapshot_items` every 5 seconds and exposes downloaded/total counts via `get_progress()`.
+
+A test assertion verifying `progress_total > 0` and `progress_completed == progress_total` after a successful restore.
+
+Fixes: https://github.com/org/repo/issues/986
+
+No backport needed since this is a new feature.
+```
+
+## Refine PR
+
+When the user says **"refine PR"**, perform the following sequence:
+
+1. **List all commits** in the PR (e.g., `git log --oneline upstream/master..HEAD` or equivalent for the project's main branch).
+2. **For each commit**, review the diff (`git show <sha>`) and check:
+   - **Commit message**: subject follows `module: short description` format, blank line separates subject from body, body explains *why* not *what*, wrapped at ~72 chars.
+   - **Single logical change**: if the commit message needs "and" or "also", it likely needs splitting.
+   - **No unrelated changes**: formatting fixes, renames, include cleanups, or test skips that don't belong with the functional change must be in separate commits or removed.
+   - **Comments in code**: verify that added comments accurately describe what the code actually does — not what a previous iteration did or what was planned but not implemented.
+   - **No unnecessary changes**: no gratuitous renames, no style-only changes mixed with logic, no dead code additions.
+3. **Split commits** that contain unrelated changes (e.g., a commit that both changes storage logic and adds test skips should be split so each change goes to its logical home).
+4. **Squash or reorder** commits where one undoes or replaces another (e.g., commit A adds a try/fallback approach, commit B replaces it with a different approach → combine into one commit with the final approach).
+5. **Move misplaced hunks** to the commit they logically belong to (e.g., test skips belong in the commit that adds the test parametrization, not in an unrelated commit).
+6. **Verify compilability**: mentally confirm that each commit in the final sequence compiles independently — removing any later commit should not break the build.
+7. **Final diff check**: `git diff <original_HEAD> HEAD --stat` should show only intentional differences (removed noise, fixed skips, etc.) — no accidental content loss.
 
 ---
 
