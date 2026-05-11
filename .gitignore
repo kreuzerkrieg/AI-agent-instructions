@@ -1,11 +1,13 @@
-# Backup files (no longer needed with git)
-*_backup_*
+# Ignore everything by default — this directory is managed by IntelliJ/Copilot
+# and arbitrary files may appear. Only explicitly whitelisted files are tracked.
+*
 
-# Empty placeholder files
-global-copilot-instructions.md
-global-git-commit-instructions.md
+# Whitelist repo infrastructure
+!.gitignore
+!LICENSE
+!README.md
 
-# MCP config (contains local paths/secrets)
-mcp.json
-
-sampling.json
+# Whitelist instruction files
+!global-agents-instructions.md
+!scylla/
+!scylla/**
