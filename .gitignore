@@ -8,3 +8,4 @@ global-git-commit-instructions.md
 # MCP config (contains local paths/secrets)
 mcp.json
 
+sampling.json

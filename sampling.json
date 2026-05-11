@@ -1,7 +1,0 @@
-{
-  "github-copilot-global-sampling-config": {
-    "allowedModels": [
-      "gpt-4.1"
-    ]
-  }
-}
