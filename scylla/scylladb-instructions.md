@@ -242,6 +242,18 @@ print(f'\nTotal: {len(tests)} tests, {sum(1 for _,(d,s) in tests.items() if s==\
 "
 ```
 
+### Test flavor naming conventions (local / S3 / GCS)
+
+Tests that exercise multiple storage backends have "flavors" — local filesystem, S3 (MinIO), and GCS (mock). The naming convention differs between Python and C++ tests:
+
+- **Python tests** use pytest parametrize: `test_foo[local]`, `test_foo[s3]`, `test_foo[gs]`. The flavor is always inside brackets at the end.
+- **C++ Boost tests** embed the flavor **in the test name itself** — either as a suffix or before a `_test` suffix:
+  - Local: `test_compaction_strategy_cleanup_method` or `compaction_manager_stop_and_drain_race_test`
+  - S3: `test_compaction_strategy_cleanup_method_s3` or `compaction_manager_stop_and_drain_race_s3_test`
+  - GCS: `test_compaction_strategy_cleanup_method_gcs` or `compaction_manager_stop_and_drain_race_gcs_test`
+
+When grouping C++ tests by flavor, strip `_s3` or `_gcs` from the name (first occurrence) to get the base (local) test name. The token is **not** always a suffix — it can appear before `_test`.
+
 **Comparing parametrize flavors (local vs s3/gs):**
 ```bash
 python3 -u -c "
