@@ -57,6 +57,8 @@ git add -A && git commit -m "<short description of what changed>" && git push
 ```
 This replaces the old backup-file approach — git history provides full versioning. Commit messages should be concise but descriptive (e.g., "Add backtrace decoding section to SCT instructions").
 
+**Adding new instruction files:** The `.gitignore` uses an inverted pattern (ignore everything, whitelist known files). When adding a new instruction file or subdirectory, you **must** add a corresponding `!filename` or `!dirname/` + `!dirname/**` entry to `.gitignore` so git tracks it.
+
 **Pull before starting work:** These instruction files may be edited by agents on other machines. At the **start of every session**, pull the latest version before reading or modifying any instruction file:
 ```bash
 cd ~/.config/github-copilot/intellij && git pull --rebase
