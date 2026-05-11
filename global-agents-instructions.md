@@ -40,6 +40,12 @@ Project-specific instructions are organized under subdirectories of this config 
 
 **Always read the relevant file at the start of a session** using `read_file` — do not rely on memory from prior conversations. If a file does not exist yet, notify the user so it can be created.
 
+ni### Personal / Cross-Project (`personal/`)
+
+| File | When to load | Description |
+|------|-------------|-------------|
+| `personal/linkedin-from-git-instructions.md` | User asks to generate a LinkedIn job description from git history | Step-by-step procedure for analyzing a contributor's commits and producing a professional job description |
+
 ---
 
 ## Scratch / Temporary Files (CLion-specific)
