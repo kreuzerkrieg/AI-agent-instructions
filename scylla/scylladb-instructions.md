@@ -572,3 +572,22 @@ curl -s -X POST https://staging.backtrace.scylladb.com/api/backtrace \
 - `.github/instructions/python.instructions.md` — Detailed Python rules
 - `CONTRIBUTING.md`, `HACKING.md` — Contributor onboarding
 
+## SCYLLADB Jira Project Reference
+
+### Field IDs (discovered via `getJiraIssueTypeMetaWithFields`, 2026-05-13)
+
+| Field | ID / Key | Notes |
+|-------|----------|-------|
+| **Issue types** | Task=`10011`, Sub-Task=`10012`, Bug=`10013`, Story=`10014`, Epic=`10000` | |
+| **Hierarchy** | Epic (level 1) → Task/Bug/Story (level 0) → Sub-Task (level -1) | No epic-under-epic |
+| **Team** | `customfield_10001` (type: team) | **Broken via MCP** — see below |
+| **Scylla components** | `customfield_10321` (multiselect) | Object Storage=`11501` |
+| **T-Shirt Size** | `customfield_10985` (radio) | XS=`11985`, S=`11986`, M=`11987`, L=`11988`, XL=`11989` |
+| **Priority** | P1=`1`, P2=`2`, P3=`4`, P4=`5` | |
+| **Parent epic** | `parent` field | e.g., `{"key": "SCYLLADB-412"}` |
+
+### Team field workaround (MCP)
+
+Setting `customfield_10001` (Team) via `createJiraIssue` fails with `"Team id 'JsonData{data={id=...}}' is not valid."` regardless of format (`{"id": "UUID"}` or `{"id": "UUID", "name": "Name"}`).
+
+**Workaround:** Omit `customfield_10001` when creating issues via MCP. Set the Team field manually in Jira after creation. All other custom fields work fine: `customfield_10321` as `[{"id": "ID"}]`, `customfield_10985` as `{"id": "ID"}`, and `priority` as `{"id": "ID"}`.
