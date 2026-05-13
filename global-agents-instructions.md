@@ -366,6 +366,25 @@ gh api graphql -f query='{
 }'
 ```
 
+### PR Review Comments — Two-Phase Workflow
+
+When the user asks to address PR review comments, follow this **two-phase** process:
+
+#### Phase 1: Plan (present to user, wait for approval)
+1. Fetch all review threads (see "Fetching PR Data" above).
+2. For each **unresolved** thread, present a numbered list with:
+   - **File:line** — where the comment is
+   - **Reviewer says** — one-line summary of the comment
+   - **Planned response** — what you intend to do (code change description OR reply-only with reasoning)
+3. **Stop and wait** for the user to approve/reject/modify each item.
+
+#### Phase 2: Execute (only after user says go)
+- Apply code changes only for approved items.
+- Post replies only for approved items.
+- Follow the rules below for amending commits, replying, and resolving threads.
+
+**Never make code changes or post replies before the user confirms the plan.**
+
 ### Addressing Review Comments (Code Changes)
 1. **Analyze each comment** — verify the reviewer's assumptions against actual code before acting (see "Handling Review Comments" above).
 2. **Make code changes** in the working tree.
