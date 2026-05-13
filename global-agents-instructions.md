@@ -369,42 +369,33 @@ When the user says **"refine PR"**, perform the following sequence:
 
 ## PR Interaction Workflow
 
-### Tools
-Use `gh` CLI for all GitHub PR interactions. Key commands:
-- `gh pr view <number> --json <fields>` — fetch metadata
-- `gh pr edit <number> --remove-label / --add-label` — manage labels
-- `gh pr comment <number> --body '...'` — post comments
-- `gh api graphql -f query='...'` — for review thread replies, resolution, and comment deletion
+### Tools — GitHub MCP (preferred) + `gh` CLI (fallback)
+
+**Primary:** Use GitHub MCP tools for all PR interactions. They return structured data directly, avoid terminal pager/truncation risks, and don't require JSON parsing.
+
+**Fallback (`gh` CLI):** Use only for operations not covered by MCP:
+- `gh pr edit <number> --remove-label / --add-label` — manage labels (no MCP equivalent)
+- `gh api graphql -f query='mutation { deletePullRequestReviewComment(...) }'` — delete duplicate comments (no MCP equivalent)
 
 ### Fetching PR Data
-```bash
-# Metadata (title, body, labels, state, commits)
-gh pr view <number> --json title,body,labels,state,commits,reviews,reviewRequests
 
-# Review threads with IDs (needed for replies/resolution)
-gh api graphql -f query='{
-  repository(owner: "<OWNER>", name: "<REPO>") {
-    pullRequest(number: <N>) {
-      reviewThreads(first: 50) {
-        nodes {
-          id
-          isResolved
-          comments(first: 10) {
-            nodes { id body author { login } path }
-          }
-        }
-      }
-    }
-  }
-}'
-```
+| What | MCP Tool | Method |
+|------|----------|--------|
+| PR metadata (title, body, state, commits) | `pull_request_read` | `get` |
+| PR diff | `pull_request_read` | `get_diff` |
+| Changed files | `pull_request_read` | `get_files` |
+| Review threads (with thread IDs, isResolved) | `pull_request_read` | `get_review_comments` |
+| Reviews (approvals, request-changes) | `pull_request_read` | `get_reviews` |
+| PR comments (non-review) | `pull_request_read` | `get_comments` |
+| CI check runs | `pull_request_read` | `get_check_runs` |
+| Combined commit status | `pull_request_read` | `get_status` |
 
 ### PR Review Comments — Two-Phase Workflow
 
 When the user asks to address PR review comments, follow this **two-phase** process:
 
 #### Phase 1: Plan (present to user, wait for approval)
-1. Fetch all review threads (see "Fetching PR Data" above).
+1. Fetch all review threads via `pull_request_read` with method `get_review_comments`.
 2. For each **unresolved** thread, present a numbered list with:
    - **File:line** — where the comment is
    - **Reviewer says** — one-line summary of the comment
@@ -427,30 +418,30 @@ When the user asks to address PR review comments, follow this **two-phase** proc
 ### Replying to Review Comments
 - For comments addressed in code: reply with a short confirmation — "Done.", "Addressed.", or "Done — <brief note>." (e.g., "Done — moved to a separate commit.").
 - For pushback: leave as-is for the user to handle, or draft a reply explaining why the current code is correct.
-- Batch replies using GraphQL mutations (max ~4 per request to avoid 502):
-```bash
-gh api graphql -f query='mutation {
-  t1: addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: "<ID>", body: "Done."}) { comment { id } }
-  t2: addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: "<ID>", body: "Addressed."}) { comment { id } }
-}'
-```
+- Use `add_reply_to_pull_request_comment` with the comment ID from the review thread.
 
 ### Resolving Review Threads
-After replying, resolve threads that are fully addressed:
-```bash
-gh api graphql -f query='mutation {
-  t1: resolveReviewThread(input: {threadId: "<THREAD_ID>"}) { thread { id } }
-  t2: resolveReviewThread(input: {threadId: "<THREAD_ID>"}) { thread { id } }
-}'
-```
-**Important:** If a GraphQL mutation returns 502, some operations may have succeeded. Always re-fetch thread state before retrying to avoid duplicate replies. If duplicates occur, delete them:
+After replying, resolve threads that are fully addressed using `pull_request_review_write` with method `resolve_thread` and the thread's node ID (`threadId`).
+
+To unresolve a thread: use method `unresolve_thread`.
+
+**If duplicate replies occur** (e.g., from a retry after a timeout), delete them via `gh` CLI:
 ```bash
 gh api graphql -f query='mutation { deletePullRequestReviewComment(input: {id: "<COMMENT_ID>"}) { pullRequestReviewComment { id } } }'
 ```
 
+### Creating Reviews
+Use `pull_request_review_write` with method `create`:
+- With `event` (`APPROVE`, `REQUEST_CHANGES`, `COMMENT`) — creates and submits immediately.
+- Without `event` — creates a **pending review**. Add comments via `add_comment_to_pending_review`, then submit via `pull_request_review_write` method `submit_pending`.
+
 ### Managing Labels
+No MCP equivalent — use `gh` CLI:
 - Remove `conflicts` after rebasing: `gh pr edit <number> --remove-label conflicts`
 - Add/remove other labels as appropriate: `gh pr edit <number> --add-label <name>`
+
+### Updating PR Metadata
+Use `update_pull_request` to change title, body, state, draft status, or request reviewers.
 
 ### PR Cover Letter Review
 - Review the title and body against the current commit series.
@@ -458,7 +449,7 @@ gh api graphql -f query='mutation { deletePullRequestReviewComment(input: {id: "
 - Update if the commit series has materially changed (new commits added/removed, major restructuring). Minor code-level tweaks don't require body updates.
 
 ### Push Summary Comment
-After pushing changes that address review comments, post a summary comment on the PR listing what was changed. Format:
+After pushing changes that address review comments, post a summary comment on the PR using `add_issue_comment` (pass PR number as `issue_number`). Format:
 ```
 v next:
 
