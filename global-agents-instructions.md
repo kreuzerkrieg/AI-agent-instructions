@@ -534,3 +534,18 @@ The agent constructed the Argus link as `https://argus.scylladb.com/tests/<test_
 The agent initially assumed Jira access required an API token (which the user couldn't obtain due to org restrictions). After exploring `acli`, `opencode-skills`, and Slack integrations — all dead ends — the solution turned out to be the Atlassian MCP server (`https://mcp.atlassian.com/v1/mcp`) which uses browser-based OAuth through Okta SSO.
 **Correct approach:** For Jira integration in JetBrains/CLion with GitHub Copilot, use the Atlassian MCP server (configured in `mcp.json`). It handles OAuth transparently — no API token needed. The `opencode-skills` repo's `~/.netrc` approach is for the OpenCode agent, not Copilot.
 
+### Jira SCYLLADB project — Team field format is rejected by MCP createJiraIssue (2026-05-13)
+When creating issues via `createJiraIssue`, setting `customfield_10001` (Team) with `{"id": "UUID"}` fails with `"Team id 'JsonData{data={id=...}}' is not valid."`. The field value from existing issues shows `{"id": "UUID", "name": "Team Name"}` but neither format works via the MCP tool.
+**Correct approach:** Omit the `customfield_10001` (Team) field when creating issues via MCP. Set it manually in Jira after creation, or investigate alternative field formats. The other custom fields work fine: `customfield_10321` (Scylla components) as `[{"id": "ID"}]`, `customfield_10985` (T-Shirt Size) as `{"id": "ID"}`, and `priority` as `{"id": "ID"}`.
+
+### SCYLLADB Jira project field IDs reference (2026-05-13)
+Discovered through `getJiraIssueTypeMetaWithFields`. Useful for future programmatic issue creation.
+**Reference:**
+- **Issue types:** Task=`10011`, Sub-Task=`10012`, Bug=`10013`, Story=`10014`, Epic=`10000`
+- **Hierarchy:** Epic (level 1) → Task/Bug/Story (level 0) → Sub-Task (level -1). No epic-under-epic.
+- **Team:** `customfield_10001` (type: team) — currently broken via MCP (see above)
+- **Scylla components:** `customfield_10321` (multiselect) — Object Storage=`11501`
+- **T-Shirt Size:** `customfield_10985` (radio) — XS=`11985`, S=`11986`, M=`11987`, L=`11988`, XL=`11989`
+- **Priority:** P1=`1`, P2=`2`, P3=`4`, P4=`5`
+- **Parent epic:** use `parent` field with epic key (e.g., `{"key": "SCYLLADB-412"}`)
+
