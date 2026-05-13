@@ -81,6 +81,32 @@ Generate tokens at: https://id.atlassian.com/manage-profile/security/api-tokens 
 
 ---
 
+## MCP Discovery — Opportunistic Search for New Tools
+
+When you encounter a **tool, service, or platform** during the session that is:
+1. mentioned in the codebase, instructions, or by the user, **and**
+2. not already configured as an MCP server (check `~/.config/github-copilot/intellij/mcp.json`), **and**
+3. a persistent service (not ephemeral infrastructure that only exists during test runs)
+
+…then **once per session**, do a background search for an MCP server:
+```
+search GitHub: "mcp server <tool-name>" sorted by stars
+```
+
+**Evaluation criteria** (all must be met to recommend):
+- ≥100 stars (maturity signal)
+- Official or well-maintained (recent commits, not archived)
+- The user actually interacts with the tool regularly (not just referenced in docs)
+- The tool has a stable, persistent endpoint the agent can connect to
+
+**If a good candidate is found**, briefly mention it to the user: *"Found an MCP server for X (N stars, official). Want me to add it?"* — do not add it without asking.
+
+**If nothing qualifies**, silently move on. Do not mention failed searches.
+
+**Track searched tools** in memory for the session to avoid redundant searches. Only search once per tool per session.
+
+---
+
 ## Scratch / Temporary Files (CLion-specific)
 When creating **any** temporary or scratch files — analysis docs, migration call-chain notes, diagrams, test timing reports, query results, generated tables, or any other output that is not a source-code change — save them under the CLion scratches directory instead of polluting the repository tree:
 ```
