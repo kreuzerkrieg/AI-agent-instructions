@@ -40,7 +40,48 @@ Project-specific instructions are organized under subdirectories of this config 
 
 **Always read the relevant file at the start of a session** using `read_file` — do not rely on memory from prior conversations. If a file does not exist yet, notify the user so it can be created.
 
-ni### Personal / Cross-Project (`personal/`)
+---
+
+## Jira Integration (Atlassian MCP)
+
+Jira access is available via the **Atlassian MCP server** configured in `~/.config/github-copilot/intellij/mcp.json`:
+
+```json
+"atlassian": {
+  "type": "http",
+  "url": "https://mcp.atlassian.com/v1/mcp"
+}
+```
+
+### How it works
+- The MCP server uses **OAuth via browser** — no API token needed. Authentication goes through the org's Okta SSO.
+- On first use in a session, Copilot connects to the MCP server which handles auth transparently.
+- The Jira instance is `https://scylladb.atlassian.net`.
+
+### Capabilities
+Once connected, the agent can:
+- Search Jira issues (JQL queries)
+- Create issues (tasks, subtasks, bugs, stories)
+- Update issues (status, assignee, description, labels)
+- Add comments
+- Read Confluence pages
+
+### Usage notes
+- The user may need to say "use Atlassian MCP" or similar in their prompt to hint that Jira tools should be used.
+- If the MCP tools are not available in the current session's tool list, the Atlassian MCP server may not be connected — ask the user to check MCP server status in CLion settings.
+
+### Alternative: API token via ~/.netrc
+If MCP is unavailable, Jira can also be accessed via REST API with an API token stored in `~/.netrc`:
+```
+machine scylladb.atlassian.net
+  login your.email@scylladb.com
+  password YOUR_JIRA_API_TOKEN
+```
+Generate tokens at: https://id.atlassian.com/manage-profile/security/api-tokens (requires admin permission).
+
+---
+
+### Personal / Cross-Project (`personal/`)
 
 | File | When to load | Description |
 |------|-------------|-------------|
@@ -496,4 +537,8 @@ The agent added extra blank lines in refactored code and did not catch them duri
 ### Argus URL format includes the project name in the path (2026-05-07)
 The agent constructed the Argus link as `https://argus.scylladb.com/tests/<test_id>`, omitting the project segment.
 **Correct approach:** The correct Argus URL format is `https://argus.scylladb.com/tests/scylla-cluster-tests/<test_id>`. Always include the project name (`scylla-cluster-tests`) between `/tests/` and the UUID.
+
+### Jira access in CLion requires Atlassian MCP, not API tokens (2026-05-13)
+The agent initially assumed Jira access required an API token (which the user couldn't obtain due to org restrictions). After exploring `acli`, `opencode-skills`, and Slack integrations — all dead ends — the solution turned out to be the Atlassian MCP server (`https://mcp.atlassian.com/v1/mcp`) which uses browser-based OAuth through Okta SSO.
+**Correct approach:** For Jira integration in JetBrains/CLion with GitHub Copilot, use the Atlassian MCP server (configured in `mcp.json`). It handles OAuth transparently — no API token needed. The `opencode-skills` repo's `~/.netrc` approach is for the OpenCode agent, not Copilot.
 
