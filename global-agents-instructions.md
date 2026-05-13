@@ -326,6 +326,99 @@ When the user says **"refine PR"**, perform the following sequence:
 
 ---
 
+## PR Interaction Workflow
+
+### Tools
+Use `gh` CLI for all GitHub PR interactions. Key commands:
+- `gh pr view <number> --json <fields>` — fetch metadata
+- `gh pr edit <number> --remove-label / --add-label` — manage labels
+- `gh pr comment <number> --body '...'` — post comments
+- `gh api graphql -f query='...'` — for review thread replies, resolution, and comment deletion
+
+### Fetching PR Data
+```bash
+# Metadata (title, body, labels, state, commits)
+gh pr view <number> --json title,body,labels,state,commits,reviews,reviewRequests
+
+# Review threads with IDs (needed for replies/resolution)
+gh api graphql -f query='{
+  repository(owner: "<OWNER>", name: "<REPO>") {
+    pullRequest(number: <N>) {
+      reviewThreads(first: 50) {
+        nodes {
+          id
+          isResolved
+          comments(first: 10) {
+            nodes { id body author { login } path }
+          }
+        }
+      }
+    }
+  }
+}'
+```
+
+### Addressing Review Comments (Code Changes)
+1. **Analyze each comment** — verify the reviewer's assumptions against actual code before acting (see "Handling Review Comments" above).
+2. **Make code changes** in the working tree.
+3. **Amend the correct commit** — use `git commit --fixup=<SHA>` + `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1`.
+4. **Separate unrelated fixes** — if a reviewer points out a pre-existing bug or a formatting issue, put the fix in its own commit (not bundled with functional changes).
+
+### Replying to Review Comments
+- For comments addressed in code: reply with a short confirmation — "Done.", "Addressed.", or "Done — <brief note>." (e.g., "Done — moved to a separate commit.").
+- For pushback: leave as-is for the user to handle, or draft a reply explaining why the current code is correct.
+- Batch replies using GraphQL mutations (max ~4 per request to avoid 502):
+```bash
+gh api graphql -f query='mutation {
+  t1: addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: "<ID>", body: "Done."}) { comment { id } }
+  t2: addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: "<ID>", body: "Addressed."}) { comment { id } }
+}'
+```
+
+### Resolving Review Threads
+After replying, resolve threads that are fully addressed:
+```bash
+gh api graphql -f query='mutation {
+  t1: resolveReviewThread(input: {threadId: "<THREAD_ID>"}) { thread { id } }
+  t2: resolveReviewThread(input: {threadId: "<THREAD_ID>"}) { thread { id } }
+}'
+```
+**Important:** If a GraphQL mutation returns 502, some operations may have succeeded. Always re-fetch thread state before retrying to avoid duplicate replies. If duplicates occur, delete them:
+```bash
+gh api graphql -f query='mutation { deletePullRequestReviewComment(input: {id: "<COMMENT_ID>"}) { pullRequestReviewComment { id } } }'
+```
+
+### Managing Labels
+- Remove `conflicts` after rebasing: `gh pr edit <number> --remove-label conflicts`
+- Add/remove other labels as appropriate: `gh pr edit <number> --add-label <name>`
+
+### PR Cover Letter Review
+- Review the title and body against the current commit series.
+- Verify the body follows the format defined in "PR Cover Letter" above: Problem → Changes → Issue reference → Backport decision.
+- Update if the commit series has materially changed (new commits added/removed, major restructuring). Minor code-level tweaks don't require body updates.
+
+### Push Summary Comment
+After pushing changes that address review comments, post a summary comment on the PR listing what was changed. Format:
+```
+v next:
+
+- <change 1>
+- <change 2>
+- ...
+```
+Example:
+```
+v next:
+
+- `is_object_storage()` made pure virtual, added override in subclass
+- removed unrelated changes (gratuitous blank lines, initialization rewrite)
+- logging enhancement split into its own commit
+- extracted unrelated typo fix into a standalone commit
+```
+This helps the reviewer see at a glance what changed without re-reading the full diff. Each bullet should be concise — one line per logical change.
+
+---
+
 ## Lessons Learned — Self-Updating Section
 
 This section is **written and maintained by the agent itself**. When the user corrects the agent's approach, points out a wrong assumption, or explains that something should be done differently — and the insight is **general enough to apply in future sessions** — the agent **must** append it here so the mistake is not repeated.
