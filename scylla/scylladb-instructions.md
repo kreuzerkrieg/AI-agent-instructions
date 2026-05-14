@@ -586,6 +586,52 @@ curl -s -X POST https://staging.backtrace.scylladb.com/api/backtrace \
 
 **Always decode backtraces before analyzing crashes** — raw addresses are not useful for diagnosis.
 
+## Creating a Pull Request (ScyllaDB)
+
+### Checklist
+When creating a PR in `scylladb/scylladb`, always perform these steps:
+
+1. **Push the branch** to the user's fork (e.g., `origin`).
+2. **Create the PR as a draft** (`draft: true`) targeting `master` on `scylladb/scylladb`.
+3. **Set `maintainer_can_modify: true`** — required for CI and maintainer collaboration.
+4. **Assign the PR** to the user who opened it (`--add-assignee <username>`).
+5. **Apply labels:**
+   - **`area/*`** — match the subsystem (e.g., `area/build`, `area/raft`, `area/cql`, `area/alternator`, `area/compaction`, `area/sstable`, `area/streaming`, etc.)
+   - **`backport/none`** — if the PR cover letter states no backport is needed (new features, refactoring, build-only changes)
+   - **`backport/<version>`** — if backporting is needed (bug fixes affecting released versions)
+   - Other labels as appropriate: `bug`, `enhancement`, `type/code_cleanup`, `area/test`
+6. **PR cover letter** must follow the format in the global instructions (Problem → Changes → Issue reference → Backport decision). The backport decision and the label **must be consistent**.
+
+### Commands reference
+```bash
+# Push branch
+git push origin <branch-name>
+
+# Assign + label (using gh CLI — no MCP equivalent for labels)
+gh pr edit <number> --add-assignee <username> --add-label "area/build" --add-label "backport/none"
+```
+
+### MCP tools for PR creation
+```
+create_pull_request  → create the PR (set draft=true, maintainer_can_modify=true)
+update_pull_request  → enable maintainer_can_modify after creation if forgotten
+```
+
+### Common area labels
+| Label | When to use |
+|-------|-------------|
+| `area/build` | Changes to configure.py, CMakeLists.txt, cmake/, build scripts |
+| `area/test` | Test infrastructure, test utilities, test framework |
+| `area/raft` | Raft consensus, group0, topology coordinator |
+| `area/cql` | CQL parser, statements, query processor |
+| `area/alternator` | DynamoDB-compatible API |
+| `area/compaction` | Compaction strategies and manager |
+| `area/sstable` | SSTable format, readers, writers |
+| `area/streaming` | Streaming, repair-based operations |
+| `area/schema_changes` | Schema mutations, schema tables |
+| `area/topology_changes` | Node join/leave/replace/decommission |
+| `type/code_cleanup` | Pure refactoring, no behavior change |
+
 ## Key Files for Orientation
 - `docs/dev/repository_layout.md` — Full directory-by-directory guide
 - `docs/dev/modules.md` — Module interaction diagram
