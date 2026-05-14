@@ -363,6 +363,107 @@ total_ops, interval_ops, latency_mean, latency_median, latency_95th, latency_99t
 ```
 All latency values are in **milliseconds**. Final results appear after a `Results:` line at the end of the file.
 
+### Stress Log Format (latte)
+Latte stress logs use a different format. Filename pattern:
+```
+latte-<tag>-l<loader>-c<cpu>-<uuid>.log
+```
+
+**Log structure:**
+1. **Init line:** `init_partition_row_distribution_preset: preset_name=<name>, total_partitions=N, total_rows=M, partitions/rows -> N:M`
+2. **CONFIG section:** Cluster info, workload script, function(s), consistency, threads, concurrency, run time/op count
+3. **LOG section:** Per-second interval samples:
+   ```
+   Time[s]  Cycles[op]  Errors[op]  Thrpt[op/s]  Min  p50  p75  p90  p95  p99  p99.9  Max  [ms/op]
+   ```
+4. **RESULTS section:**
+   ```
+   Cycles [op]   20000000
+   Errors [op]          0
+   Rows   [row]         0       ← result rows returned (0 for writes)
+   Throughput [op/s]  18665
+   Cycle latency [ms]  2.571
+   ```
+5. **CYCLE LATENCY histogram:** Min, p25, p50, p75, p90, p95, p98, p99, p99.9, p99.99, Max
+
+**Key config lines to extract:**
+- `Function(s)` — which latte function is running (insert, read, count_read, etc.)
+- `Run time [s]` or `└─ [op]` — duration-based or count-based termination
+- `Threads` / `Concurrency [req]` — parallelism settings
+- `Consistency` — CL used
+
+**Latte cycle vs row semantics:**
+- One "cycle" = one call to the latte function (may produce multiple CQL requests internally)
+- `--start-cycle=1 --end-cycle=20000001` = 20M cycles
+- `Rows [row]` reports result rows returned to the driver (0 for writes, 1 for count(*), N for scans)
+- `[row/req]` shows rows per CQL request (useful for understanding scan page sizes)
+
+---
+
+## Verifying Dataset Size from Prometheus Metrics
+
+When analyzing run results, **always verify the actual on-disk data size** rather than trusting test names or Jira descriptions.
+
+### Key Metrics
+
+| Metric | What it reports | Per-shard? |
+|--------|----------------|:---:|
+| `scylla_column_family_live_disk_space` | Live SSTable bytes (compressed, on disk/S3) | **No** (per-node per-table) |
+| `scylla_column_family_total_disk_space` | All SSTable bytes including pending compaction | No |
+| `scylla_column_family_total_disk_space_before_compression` | Uncompressed logical size | No |
+| `scylla_column_family_live_sstable` | Count of live SSTables | No |
+| `scylla_column_family_tablet_count` | Number of tablet replicas on this node | No |
+
+**Important:** These metrics do NOT have a `shard` label — they're already aggregated at the (instance, keyspace, table) level. No need to sum across shards; just sum across instances.
+
+### Verifying Data Size
+
+```bash
+# Get per-node live disk space for a specific table (use latest timestamp values)
+promtool tsdb dump --sandbox-dir-root="$TSDB" --match='{__name__="scylla_column_family_live_disk_space"}' "$TSDB" 2>/dev/null \
+  | grep "<table_name>" | awk '{
+  match($0, /instance="([^"]+)"/, a)
+  split($0, parts, "} "); split(parts[2], vals, " ")
+  val = vals[1]; ts = vals[2]
+  if (ts+0 > latest_ts[a[1]]+0) { latest_ts[a[1]] = ts; latest_val[a[1]] = val }
+} END {
+  total = 0
+  for (k in latest_val) { total += latest_val[k]; printf "  %s: %.3f GB\n", k, latest_val[k]/1073741824 }
+  printf "  TOTAL: %.3f GB\n", total/1073741824
+}'
+```
+
+### Cross-Checking Compression Ratio
+
+Compare `live_disk_space` (compressed) vs `total_disk_space_before_compression` (uncompressed):
+- Ratio ~1:1 → data is incompressible (random bytes or already maximally compact)
+- Ratio >> 1 → effective compression (text, repeated patterns, sparse data)
+- Compressed > uncompressed → compression overhead exceeds savings (very small data + framing)
+
+### Deriving Per-Row Size
+
+```
+per_row_bytes = total_live_disk_space / (unique_rows × RF)
+```
+
+Compare against expected schema size:
+- `bigint` = 8 bytes
+- `blob` = variable (check latte script for generation logic)
+- SSTable overhead per row: ~20-50 bytes (flags, timestamps, cell headers)
+- If per_row_bytes << expected → blobs are empty/tiny, test measures mechanics not volume
+
+### For S3 Keyspaces
+
+`scylla_column_family_live_disk_space` reports actual SSTable size **on S3** (not local metadata). Verified by cross-referencing: native and S3 runs with the same data show the same `live_disk_space` values. The metric is authoritative for both storage backends.
+
+To get total data UPLOADED to S3 during writes (including intermediate flushes that get compacted away):
+```bash
+# Sum max values of scylla_s3_total_put_bytes for class="memtable" across all (instance, shard)
+promtool tsdb dump --sandbox-dir-root="$TSDB" --match='{__name__="scylla_s3_total_put_bytes", class="memtable"}' "$TSDB" 2>/dev/null
+```
+
+This total will be LARGER than `live_disk_space` because it includes bytes from intermediate SSTables that were later compacted away.
+
 ---
 
 ## Prometheus TSDB Analysis
@@ -845,3 +946,12 @@ When reporting metrics like cache hit rate, throughput counters, or any time-ser
 ### S3 metrics have a `class` label — always group by it (2026-05-04)
 The `scylla_s3_total_*` metrics (GET/PUT/HEAD/DELETE requests, bytes, latency, retries) have a `class` label with values like `main`, `memtable`, `sl:default`. When computing counter deltas, if you key only by `(instance, shard)` and ignore `class`, multiple distinct series get merged into one list. This produces phantom deltas: e.g., the `class="main"` series stays at 0 while `class="memtable"` has actual values — the merged list shows `first=0, last=20578` = false delta of 20,578 per shard, when the real delta during that window was 0.
 **Correct approach:** Always key S3 metric series by `(class, instance, shard)` — or at minimum, filter to the specific `class` value of interest (e.g., `class="sl:default"` for user-facing read/write traffic). Check all label dimensions with `sort -u` on the dump before aggregating.
+
+### Always verify dataset size — never trust test names or Jira descriptions (2026-05-14)
+The agent reported "20M rows × 10 × 512-byte blobs" based on the test name "100gb" and the table schema showing 10 blob columns. The actual on-disk size was **0.44 GB** (not 100 GB) — the latte script generated empty/tiny blobs. The test name was aspirational/leftover, and the schema alone doesn't reveal column value sizes.
+**Correct approach:** (1) Check `scylla_column_family_live_disk_space` from Prometheus for the actual table. (2) Cross-reference native and S3 runs — if both show the same size, the metric is correct. (3) Compare `total_disk_space_before_compression` vs `live_disk_space` to check compression ratio. (4) Calculate per-row size = total / (unique_rows × RF) and compare against schema expectations. (5) If the latte script isn't available, derive blob sizes from on-disk evidence rather than assuming from schema.
+
+### column_family disk metrics have NO shard label — don't key by shard (2026-05-14)
+The `scylla_column_family_live_disk_space`, `total_disk_space`, `live_sstable`, and `tablet_count` metrics are per-instance per-table aggregates — they do NOT have a `shard` label. When extracting these, key by `instance` only. If you key by `(instance, shard)` you'll either get no matches or misparse the data.
+**Correct approach:** For column_family metrics, use `awk` keyed on `instance` only. For most other ScyllaDB metrics (s3, sstables, cache, reactor), these DO have shard labels — check sample lines before writing extraction scripts.
+
