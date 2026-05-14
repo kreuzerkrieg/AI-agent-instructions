@@ -895,6 +895,149 @@ experimental_features:
 
 ---
 
+## Latte Benchmark Tool Reference
+
+**Repository:** https://github.com/scylladb/latte
+**Language:** Rust + Rune scripting (`.rn` files)
+**Purpose:** CQL/Alternator benchmarking tool with scriptable workloads
+
+### Source Code Layout
+
+| Path | Purpose |
+|------|---------|
+| `src/scripting/functions_common.rs` | **Built-in functions** exposed to `.rn` scripts (`blob()`, `text()`, `hash()`, `uuid()`, `normal()`, `uniform()`, `vector()`, etc.) |
+| `src/scripting/row_distribution.rs` | **Partition row distribution logic** — how iterations map to partitions (round-robin, weighted groups) |
+| `src/scripting/mod.rs` | Script engine setup, module registration |
+| `src/scripting/cql/` | CQL-specific bindings (prepared statements, execute, result handling) |
+| `src/scripting/alternator/` | DynamoDB/Alternator bindings |
+| `src/config.rs` | CLI argument parsing, workload configuration |
+| `src/main.rs` | Entry point, run orchestration |
+| `src/exec/` | Execution engine (thread pool, rate limiting, cycle management) |
+| `src/stats/` | Statistics collection and reporting |
+| `src/report/` | Output formatting (text, JSON, HDR histograms) |
+| `workloads/` | Built-in example `.rn` workload scripts |
+| `resources/` | Embedded resource files accessible via `read_resource_*()` |
+
+### Key Built-in Functions
+
+All registered via `#[rune::function]` in `functions_common.rs`:
+
+| Function | Signature | Behavior |
+|----------|-----------|----------|
+| `blob(seed, len)` | `(i64, usize) → Vec<u8>` | Generates `len` **pseudorandom bytes** seeded by `seed`. Each call with same seed+len produces identical output. Data is truly random (incompressible). |
+| `text(seed, len)` | `(i64, usize) → String` | Generates `len` random characters from alphanumeric+symbols charset |
+| `hash(i)` | `(i64) → i64` | MetroHash64 of `i`, result in `[0, i64::MAX]` |
+| `hash2(a, b)` | `(i64, i64) → i64` | MetroHash64 of two values combined |
+| `hash_range(i, max)` | `(i64, i64) → i64` | `hash(i) % max` — deterministic mapping to `[0, max)` |
+| `hash_select(i, collection)` | `(i64, &[Value]) → Value` | Select item from collection by hash |
+| `uuid(i)` | `(i64) → Uuid` | Deterministic UUID from iteration index |
+| `normal(i, mean, std_dev)` | `(i64, f64, f64) → f64` | Seeded normal distribution sample |
+| `uniform(i, min, max)` | `(i64, f64, f64) → f64` | Seeded uniform distribution sample |
+| `vector(len, generator)` | `(usize, Function) → Vec<Value>` | Generate vector by calling generator(i) for each index |
+| `now_timestamp()` | `() → i64` | Current UTC epoch seconds |
+| `is_none(input)` | `(Value) → bool` | Check if value is None (workaround for Rune's None handling) |
+| `read_to_string(path)` | `(&str) → String` | Read file contents |
+| `read_lines(path)` | `(&str) → Vec<String>` | Read file as lines |
+| `read_words(path)` | `(&str) → Vec<String>` | Read file, split into words |
+| `read_resource_to_string(path)` | `(&str) → String` | Read embedded resource file |
+| `join(collection, sep)` | `(&[Value], &str) → String` | Join string values with separator |
+
+### Partition Row Distribution
+
+The `init_partition_row_distribution_preset(name, row_count, rows_per_partition, partition_sizes)` function configures how iteration indices map to partitions.
+
+**Parameters:**
+- `row_count` — total logical rows across all partitions
+- `rows_per_partition` — base number of rows per partition (before multiplier)
+- `partition_sizes` — string of `"percent:multiplier"` pairs, e.g., `"100:1"` (uniform), `"80:1,15:2,5:4"` (mixed sizes)
+
+**How it works (single group, "100:1"):**
+- `n_partitions = row_count / rows_per_partition`
+- Distribution is **round-robin with stride 1**: `partition_idx = idx % n_partitions`
+- The `get_partition_idx(preset_name, idx)` function returns the partition index for a given iteration
+
+**The GCD collision trap:**
+When the script computes `ck = idx % rows_per_partition` and partition assignment is `idx % n_partitions`:
+- Partition `p` gets idx values: `p, p + n_partitions, p + 2*n_partitions, ...`
+- CK values for partition `p`: `{(p + k * n_partitions) % rows_per_partition : k=0,1,...}`
+- **Unique CKs per partition = rows_per_partition / gcd(n_partitions, rows_per_partition)**
+- If `n_partitions` divides `rows_per_partition` evenly: only `rows_per_partition / n_partitions` unique rows per partition!
+
+**Example:** `n_partitions=1000`, `rows_per_partition=30000` → `gcd=1000` → only **30** unique ck values per partition. Running 20M cycles produces 30,000 unique rows total, not 20M.
+
+**Fix:** Run enough cycles to cover all rows (`end_cycle >= row_count`), or ensure `gcd(n_partitions, rows_per_partition) = 1` (coprime values).
+
+### Latte CLI — Key Arguments
+
+| Argument | Meaning |
+|----------|---------|
+| `--function=<name>` | Which `.rn` function to call per cycle (e.g., `insert`, `read`) |
+| `--start-cycle=N --end-cycle=M` | Cycle range `[N, M)` — total iterations = M - N |
+| `--duration=<seconds or Nm/Nh>` | Time-bound execution (overrides cycle count if shorter) |
+| `--rate=<ops/s>` | Target throughput (throttled) |
+| `--threads=N` | OS threads |
+| `--concurrency=N` | Max concurrent async requests |
+| `--consistency=<CL>` | CQL consistency level |
+| `--tag=<string>` | Tag for identifying this run in logs |
+| `-P key=value` | Override `latte::param!()` parameters in the script |
+| `--request-timeout=<secs>` | Per-request timeout |
+| `--retry-interval='min,max'` | Retry backoff range |
+| `--retry-number=N` | Max retries per request |
+
+### Latte `param!()` Macro
+
+Scripts declare parameters with defaults using:
+```rust
+const VALUE_SIZE = latte::param!("value_size", 512);
+```
+
+Override from CLI: `latte run ... -P value_size=1024 ...`
+
+If no `-P` override is given, the default (second argument) is used. **Always check the test config YAML for `-P` overrides** before assuming default values.
+
+### Workload Script Structure
+
+A typical `.rn` file has these functions:
+
+| Function | Called when | Purpose |
+|----------|------------|---------|
+| `schema(db)` | `latte schema ...` | Create keyspace/table (DDL) |
+| `erase(db)` | `latte schema --erase ...` | Truncate table |
+| `prepare(db)` | Before run starts | Prepare statements, init distribution presets |
+| `insert(db, i)` | Each write cycle `i` | Insert/upsert a row |
+| `read(db, i)` | Each read cycle `i` | Point/range read |
+| Custom functions | `--function=<name>` | Any user-defined workload function |
+
+The `i` parameter is the **cycle number** (from `--start-cycle` to `--end-cycle`).
+
+### Finding Latte Scripts in SCT
+
+1. **Upstream repo:** `scylladb/scylla-cluster-tests` → `data_dir/latte/`
+2. **User forks:** If Jenkins job tag contains a username (e.g., `jsmolar-longevity-...`), check `<username>/scylla-cluster-tests` on the relevant branch
+3. **Test config YAML:** The `prepare_write_cmd` / `stress_cmd` entries specify the `.rn` file path
+4. **Branch identification:** Jenkins pipeline names often encode the branch name — look for it in the Argus test metadata or job URL
+
+### Analyzing Latte Data Size from Script + Config
+
+Given a latte script and test config, compute actual unique rows:
+
+```
+1. From script: ROW_COUNT, ROWS_PER_PARTITION, PARTITION_SIZES
+2. From config: --start-cycle=S --end-cycle=E → cycles = E - S
+3. Compute:
+   n_partitions = ROW_COUNT / ROWS_PER_PARTITION
+   unique_ck_per_partition = ROWS_PER_PARTITION / gcd(n_partitions, ROWS_PER_PARTITION)
+   max_unique_rows = n_partitions × unique_ck_per_partition
+   actual_unique_rows = min(max_unique_rows, cycles)
+4. Per-row size: sum of all column sizes (check blob/text lengths in insert function)
+5. Total data: actual_unique_rows × per_row_size
+6. On-disk with RF: actual_unique_rows × per_row_size × RF (distributed across nodes)
+```
+
+**Always verify against Prometheus `scylla_column_family_live_disk_space`** — the calculation above gives logical uncompressed size; SSTable format adds ~20-50 bytes overhead per row but compression may reduce total.
+
+---
+
 ## Lessons Learned — Self-Updating Section (SCT-specific)
 
 This section is **written and maintained by the agent itself**, following the same rules as the global Lessons Learned section in `global-agents-instructions.md`. Entries here are **SCT-specific** — general insights go in the global file instead.
