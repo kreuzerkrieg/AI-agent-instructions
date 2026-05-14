@@ -422,11 +422,12 @@ When the user asks to address PR review comments, follow this **two-phase** proc
 
 #### Phase 1: Plan — `$plan-review`
 1. Fetch all review threads via `pull_request_read` with method `get_review_comments`.
-2. For each **unresolved** thread, present a numbered list with:
+2. For each **unresolved** thread, build a numbered list with:
    - **File:line** — where the comment is
    - **Reviewer says** — one-line summary of the comment
    - **Planned response** — what you intend to do (code change description OR reply-only with reasoning)
-3. **Stop and wait** for the user to approve/reject/modify each item.
+3. **Save the plan to a scratch file** (e.g., `~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/plan-review-PR<number>.md`) and open it for the user. This is easier to read than inline agent output.
+4. **Stop and wait** for the user to approve/reject/modify each item.
 
 The user triggers this phase by saying **`$plan-review`**.
 
