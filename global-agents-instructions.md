@@ -565,3 +565,7 @@ The agent wrote "fix IDL path normalization" for a commit that actually *added* 
 ### Use printf (not heredoc) for multi-line commit message files in terminal (2026-05-14)
 Bash heredocs (`cat > file << 'EOF'`) lost blank lines when used to create commit message files, resulting in subject and body being squashed onto one line. The agent had to retry with `printf` to get proper formatting.
 **Correct approach:** Always use `printf '...\n\n...\n' > /tmp/msg.txt` for commit message files, where `\n\n` explicitly creates the required blank line between subject and body. Alternatively, use `create_file` tool if available. Never rely on heredocs preserving blank lines in terminal commands.
+
+### Always add ai-assisted label when opening PRs (2026-05-14)
+The agent opened PRs without adding the `ai-assisted` label.
+**Correct approach:** When creating or updating a PR on GitHub, always add the `ai-assisted` label. Use `gh pr edit <number> --add-label ai-assisted` after creating the PR, or include it in the PR creation workflow.
