@@ -92,6 +92,7 @@ When you encounter a **tool, service, or platform** during the session that is:
 ```
 search GitHub: "mcp server <tool-name>" sorted by stars
 ```
+Also check **[cursor.directory](https://cursor.directory/)** — a community-curated directory of MCP servers. It aggregates servers across categories and can surface options that GitHub search misses.
 
 **Evaluation criteria** (all must be met to recommend):
 - ≥100 stars (maturity signal)
