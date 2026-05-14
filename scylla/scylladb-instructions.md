@@ -63,6 +63,31 @@ Prefix any command with `./tools/toolchain/dbuild` to use the official build env
     - `ninja build/dev/test/boost/combined_tests` (contains `group0_voter_calculator_test.cc` and others)
     - `ninja build/dev/test/raft/replication_test` (standalone Raft test)
 
+### Build system comparison tool
+`scripts/compare_build_systems.py` verifies configure.py and CMake produce equivalent builds by parsing ninja files from both systems. It checks:
+1. Per-file compilation flags
+2. Link target sets
+3. Per-target linker settings
+4. IDL-generated file sets (from `idl-compiler.py`)
+
+```bash
+scripts/compare_build_systems.py -m dev      # Compare single mode (fast)
+scripts/compare_build_systems.py             # Compare all modes
+scripts/compare_build_systems.py --ci        # CI mode: quiet, strict
+```
+
+**When adding/removing IDL files:** update both the `idls` list in `configure.py` AND `idl/CMakeLists.txt`. The comparison tool now catches mismatches. See `docs/dev/compare-build-systems.md` for details.
+
+### CMake precompiled header (PCH)
+Both build systems use `stdafx.hh` as a precompiled header. In configure.py, this is applied via `-Xclang -include-pch` in the `cxx_with_pch.<mode>` rule. In CMake:
+- `scylla-precompiled-header` target owns the PCH definition (`target_precompile_headers(... PRIVATE "stdafx.hh")`)
+- Consumer targets (e.g., `scylla-main`) must explicitly reuse it: `target_precompile_headers(<target> REUSE_FROM scylla-precompiled-header)`
+- Without `REUSE_FROM`, files relying on transitive includes from `stdafx.hh` will fail to compile under CMake
+
+**Debugging CMake vs configure.py compile differences:** compare the compile commands:
+- CMake: check `compile_commands.json` (generated in build dir, symlinked to repo root)
+- configure.py: inspect `build.ninja` rules (`cxx_with_pch.<mode>` vs `cxx.<mode>`)
+
 ## Running Tests
 ```bash
 ./test.py --mode=dev test/boost/memtable_test.cc                    # C++ test file
