@@ -559,3 +559,9 @@ The agent initially assumed Jira access required an API token (which the user co
 
 
 
+### Commit messages must describe what the commit actually does — not how it was developed (2026-05-14)
+The agent wrote "fix IDL path normalization" for a commit that actually *added* the entire IDL comparison feature. The message described implementation details (normalization) rather than the purpose (adding a new check). The user caught that the message was misleading.
+**Correct approach:** Before writing a commit message, ask "what does this commit add/change for the user?" not "what technical steps did I take?". A commit that adds a new feature says "add", not "fix". Review each commit message against the actual diff to verify accuracy.
+### Use printf (not heredoc) for multi-line commit message files in terminal (2026-05-14)
+Bash heredocs (`cat > file << 'EOF'`) lost blank lines when used to create commit message files, resulting in subject and body being squashed onto one line. The agent had to retry with `printf` to get proper formatting.
+**Correct approach:** Always use `printf '...\n\n...\n' > /tmp/msg.txt` for commit message files, where `\n\n` explicitly creates the required blank line between subject and body. Alternatively, use `create_file` tool if available. Never rely on heredocs preserving blank lines in terminal commands.
