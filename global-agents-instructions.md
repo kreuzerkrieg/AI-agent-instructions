@@ -420,7 +420,7 @@ When the user says **"refine PR"**, perform the following sequence:
 
 When the user asks to address PR review comments, follow this **two-phase** process:
 
-#### Phase 1: Plan — "plan review"
+#### Phase 1: Plan — `$plan-review`
 1. Fetch all review threads via `pull_request_read` with method `get_review_comments`.
 2. For each **unresolved** thread, present a numbered list with:
    - **File:line** — where the comment is
@@ -428,14 +428,14 @@ When the user asks to address PR review comments, follow this **two-phase** proc
    - **Planned response** — what you intend to do (code change description OR reply-only with reasoning)
 3. **Stop and wait** for the user to approve/reject/modify each item.
 
-The user triggers this phase by saying **"plan review"**.
+The user triggers this phase by saying **`$plan-review`**.
 
-#### Phase 2: Execute — "finalize review"
+#### Phase 2: Execute — `$finalize-review`
 - Apply code changes only for approved items.
 - Post replies only for approved items.
 - Follow the rules below for amending commits, replying, and resolving threads.
 
-The user triggers this phase by saying **"finalize review"**.
+The user triggers this phase by saying **`$finalize-review`**.
 
 **Never make code changes or post replies before the user confirms the plan.**
 
