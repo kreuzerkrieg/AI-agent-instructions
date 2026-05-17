@@ -570,3 +570,8 @@ Bash heredocs (`cat > file << 'EOF'`) lost blank lines when used to create commi
 ### Always add ai-assisted label when opening PRs (2026-05-14)
 The agent opened PRs without adding the `ai-assisted` label.
 **Correct approach:** When creating or updating a PR on GitHub, always add the `ai-assisted` label. Use `gh pr edit <number> --add-label ai-assisted` after creating the PR, or include it in the PR creation workflow.
+
+### Always assign PRs to the user when creating them (2026-05-17)
+The agent created a PR without assigning it to the user.
+**Correct approach:** When creating a PR, always assign it to the user (`kreuzerkrieg`). Use `update_pull_request` with `reviewers` or `gh pr edit --add-assignee` after creation if the create API doesn't support assignees directly.
+
