@@ -63,6 +63,22 @@ Prefix any command with `./tools/toolchain/dbuild` to use the official build env
     - `ninja build/dev/test/boost/combined_tests` (contains `group0_voter_calculator_test.cc` and others)
     - `ninja build/dev/test/raft/replication_test` (standalone Raft test)
 
+### Standalone vs combined tests
+To determine if a test is **standalone** (its own binary) or part of **combined_tests**:
+1. Look in `configure.py` for the `deps['test/boost/combined_tests']` list (starts around line 1672). This list contains `.cc` files that are compiled into the single `combined_tests` binary.
+2. If a test appears in `scylla_tests` (line ~530) but is **not** listed in `deps['test/boost/combined_tests']`, it is a **standalone** binary with its own target: `ninja build/<mode>/test/boost/<test_name>`
+3. If it **is** listed in `deps['test/boost/combined_tests']`, build with: `ninja build/<mode>/test/boost/combined_tests`
+
+### Build modes and sanitizers
+| Mode | Sanitizers | Optimization | Purpose |
+|------|-----------|--------------|---------|
+| `dev` | None | `-O1` | Fast compilation for development |
+| `debug` | ASan + UBSan | `-Og` | Finding memory errors, use-after-free, undefined behavior |
+| `sanitize` | ASan + UBSan | `-Os` | Same sanitizers as debug but with optimizations |
+| `release` | None | `-O3` | Production builds |
+
+Both `debug` and `sanitize` link with `-fsanitize=address -fsanitize=undefined`. The `debug` mode is preferred for testing memory safety issues since it has no optimizations that might hide bugs. There is no MemorySanitizer (MSan) — only ASan and UBSan.
+
 ### Build system comparison tool
 `scripts/compare_build_systems.py` verifies configure.py and CMake produce equivalent builds by parsing ninja files from both systems. It checks:
 1. Per-file compilation flags
