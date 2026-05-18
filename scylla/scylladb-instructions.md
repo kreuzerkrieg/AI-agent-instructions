@@ -64,10 +64,34 @@ Prefix any command with `./tools/toolchain/dbuild` to use the official build env
     - `ninja build/dev/test/raft/replication_test` (standalone Raft test)
 
 ### Standalone vs combined tests
+The build system used in CLion is **CMake** (`test/boost/CMakeLists.txt`). CLion knows nothing about `configure.py` — always use CMakeLists.txt to determine test targets.
+
 To determine if a test is **standalone** (its own binary) or part of **combined_tests**:
-1. Look in `configure.py` for the `deps['test/boost/combined_tests']` list (starts around line 1672). This list contains `.cc` files that are compiled into the single `combined_tests` binary.
-2. If a test appears in `scylla_tests` (line ~530) but is **not** listed in `deps['test/boost/combined_tests']`, it is a **standalone** binary with its own target: `ninja build/<mode>/test/boost/<test_name>`
-3. If it **is** listed in `deps['test/boost/combined_tests']`, build with: `ninja build/<mode>/test/boost/combined_tests`
+1. Look in `test/boost/CMakeLists.txt` for the test name.
+2. If it has its own `add_scylla_test(<test_name> KIND SEASTAR)` entry — it is a **standalone** binary.
+3. If it is listed as a `SOURCES` entry under `add_scylla_test(combined_tests KIND SEASTAR SOURCES ...)` — it is part of the `combined_tests` binary.
+
+Example standalone test:
+```cmake
+add_scylla_test(tablet_aware_restore_test
+  KIND SEASTAR)
+```
+→ Build target: `ninja build/<mode>/test/boost/tablet_aware_restore_test`
+
+Example combined test (part of `combined_tests`):
+```cmake
+add_scylla_test(combined_tests
+  KIND SEASTAR
+  SOURCES
+    combined_tests.cc
+    aggregate_fcts_test.cc
+    ...
+    database_test.cc
+    ...)
+```
+→ Build target: `ninja build/<mode>/test/boost/combined_tests`
+
+**Note:** `configure.py` has equivalent information but CLion doesn't use it. When in doubt, check `test/boost/CMakeLists.txt`.
 
 ### Build modes and sanitizers
 | Mode | Sanitizers | Optimization | Purpose |
