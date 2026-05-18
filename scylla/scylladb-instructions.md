@@ -703,32 +703,6 @@ Setting `customfield_10001` (Team) via `createJiraIssue` fails with `"Team id 'J
 
 **Workaround:** Omit `customfield_10001` when creating issues via MCP. Set the Team field manually in Jira after creation. All other custom fields work fine: `customfield_10321` as `[{"id": "ID"}]`, `customfield_10985` as `{"id": "ID"}`, and `priority` as `{"id": "ID"}`.
 
-## Known Issues — Object Storage (S3)
 
-### S3 Memory Pool Deadlock (SCYLLADB-1917)
 
-**Symptom:** Write timeouts with `dirty_memory_manager_logalloc::region_group::on_request_expiry::blocked_requests_timed_out_error (memtable (unspooled): timed out)` when using S3/object-storage backend. Dirty memory at ~99%, memtable flush stuck, zero S3 connections active despite memory being held.
-
-**Root cause:** Per-shard `_object_storage_clients_memory` semaphore (default 10 MiB) is shared between S3 uploads (compaction output, memtable flush) and S3 downloads (compaction input prefetch). When compaction simultaneously uploads output parts (5 MiB each) and holds prefetched download buffers, the pool exhausts. This creates a deadlock cycle:
-1. Compaction output upload blocks on `claim_memory(5 MiB)` — pool full
-2. Compaction stops processing rows → input download buffers stay queued, holding their claims
-3. Memtable flush also blocks on `claim_memory` for its upload part
-4. All flushes wedge → dirty memory hits hard limit → writes block → timeouts
-
-**Key diagnostic indicators:**
-- `scylla_memory_dirty_bytes` at ~99% of shard memory
-- `scylla_s3_nr_active_connections: 0` with `scylla_object_storage_memory_usage` near pool limit
-- `scylla_database_total_writes_timedout` increasing
-- Log: `storage_proxy - Failed to apply mutation from <host_id>#<shard>: ...blocked_requests_timed_out_error`
-- Heavy compaction activity on shards (`:comp` scheduling group) concurrent with memtable flush
-
-**Variant (transient starvation):** Even without a full permanent deadlock, the same mechanism can cause transient write timeouts when compaction saturates S3 upload bandwidth, leaving insufficient memory/bandwidth for memtable flush. An S3 connection abort (`Software caused connection abort`) during compaction can trigger this by leaving memory claims held on a dead connection.
-
-**Status:** In Progress (assigned to Dimitrios Symonidis, target 2026 Q3). Parent epic: SCYLLADB-412 (Tables over object storage).
-
-**Proposed fixes:**
-1. Split the S3 memory pool: separate semaphores for uploads vs. downloads
-2. Bound download prefetch to leave headroom for upload claims
-3. Make `claim_memory` deadlock-aware (no single caller can hold > pool_size - minimum_part_size)
-4. Add observability: metric for "upload claim waiting > N seconds", per-class breakdown of memory usage
 
