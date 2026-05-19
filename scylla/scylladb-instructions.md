@@ -882,22 +882,32 @@ curl -s --netrc "https://jenkins.scylladb.com/job/scylla-master/job/scylla-ci/<B
 
 #### Step 3: Analyze server logs
 
-Grep the Scylla server logs for crash/hang indicators:
+**CRITICAL RULES:**
+- **State facts only.** Never speculate about causes. If the cause is not obvious from the logs, say "cause unclear — needs further investigation."
+- **Check errors/warnings first** — grep for `ERROR` and `WARN` level messages. These are the primary diagnostic data.
+- **Ignore reactor stalls** during initial analysis. Stalls on dev/debug builds are routine and expected (dev mode has `-O1`, debug has `-Og`). Only mention stalls if they directly correlate with important events AND exceed extreme thresholds (>10s).
+- **Trace the test logic** through the logs. The test code defines what SHOULD happen; the logs show what DID happen. Find where they diverge.
+- **Never assume infrastructure issues.** The fact that nodes become unreachable doesn't mean "overloaded worker" — trace the actual cause through the logs.
 
-| Pattern to grep | Indicates |
-|-----------------|-----------|
-| `Segmentation fault` / `SIGSEGV` | Crash — needs backtrace decode |
-| `Aborting` / `SIGABRT` / `SCYLLA_ASSERT` | Assertion failure |
-| `Reactor stall` | Stall — look for duration and stack |
-| `std::bad_alloc` / `out of memory` | OOM |
-| `Exceptional future ignored` | Unhandled exception |
-| `connection refused` / `connection reset` | Node went down |
-| `seastar::broken_promise` | Shutdown race or crash |
-| `repair - ` / `raft_topology - ` | Domain-specific errors (match test subject) |
+**Analysis order:**
+1. **Grep for ERROR/WARN** — these are the facts:
+   ```bash
+   grep "^ERROR\|^WARN" /tmp/scylla_server.log
+   ```
+2. **Trace the test's code path through the logs** — the test uses injections, API calls, and log waits. Find each step in the server log:
+   - Did the injection get enabled? (`debug_error_injection`)
+   - Did the expected operation start? (e.g., `load_balancer`, `raft_topology`, `repair`)
+   - Where did it stop progressing?
+3. **Identify the blocking point** — what was the last thing the server was doing when it stopped making progress?
+4. **Check for crashes** (only if nodes went down):
+   - `Segmentation fault` / `SIGSEGV` → crash, decode backtrace
+   - `Aborting` / `SIGABRT` / `SCYLLA_ASSERT` → assertion failure
+   - `std::bad_alloc` → OOM
+   - Process simply stopped logging → check if it was killed externally
 
 If a crash backtrace is found, decode it using the backtrace symbolization service (see "Decoding Backtraces" section above). The build ID can be extracted from the server log's startup banner or `coredumps.info` artifact.
 
-**Timeline reconstruction:** Correlate timestamps across pytest.log (test actions) and scylla-*.log (server events) to build a timeline: what was the test doing when the server died?
+**Key principle:** The analysis must follow the test's logic. Read the test code, understand what sequence of events it expects, then verify in the logs whether each step happened. The point of divergence is where the bug is.
 
 #### Step 4: Examine the relevant source code at build revision
 
