@@ -757,6 +757,29 @@ argus run logs download --run-id <UUID> --name "sct-<suffix>.log.tar.zst" --outp
 
 ---
 
+## ScyllaDB Internal MCP Servers
+
+These MCP servers are configured in `~/.config/github-copilot/intellij/mcp.json` and provide access to ScyllaDB-internal observability services.
+
+| Server | URL | Auth | Purpose |
+|--------|-----|------|---------|
+| `victorialogs_clusters` | `https://victoria-logs-mcp.app.int.scylla.cloud/mcp` | Internal network (VPN/SSO) | Query VictoriaLogs for ScyllaDB Cloud **cluster** logs |
+| `victorialogs_infra` | `https://victoria-logs-infra-mcp.app.int.scylla.cloud/mcp` | Internal network (VPN/SSO) | Query VictoriaLogs for ScyllaDB Cloud **infrastructure** logs |
+| `metabase` | `https://scylladb.metabaseapp.com/api/mcp` | OAuth (browser) | Query Metabase dashboards and datasets (test analytics, fleet data) |
+| `atlassian` | `https://mcp.atlassian.com/v1/mcp` | OAuth via Okta SSO | Jira issues and Confluence pages at `scylladb.atlassian.net` |
+
+### Authentication Notes
+- **VictoriaLogs MCPs:** Require access to the internal ScyllaDB network (`.int.scylla.cloud` domain). No additional token needed — identity is from the network/SSO context.
+- **Metabase MCP:** Uses OAuth via browser. First use opens a browser auth flow.
+- **Atlassian MCP:** Uses OAuth via browser through the org's Okta SSO. Documented in detail in the global instructions file.
+
+### When to Use
+- **VictoriaLogs:** When investigating ScyllaDB Cloud cluster issues (not SCT test runs — those use Prometheus from the monitoring stack).
+- **Metabase:** When querying historical test analytics, fleet metrics, or aggregated data across many runs.
+- **Atlassian:** When creating/updating Jira issues or reading Confluence documentation.
+
+---
+
 ## Argus Test Run Links
 
 Every SCT run is tracked in [Argus](https://argus.scylladb.com), the test result tracking service. Each run has a unique UUID (`test_id`) that maps to an Argus URL.
