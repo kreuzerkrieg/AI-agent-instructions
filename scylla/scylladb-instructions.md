@@ -821,3 +821,168 @@ project = SCYLLADB AND "Scylla components" = "Object Storage" AND text ~ "error_
 - Test 3: Investigate — may be a regression introduced by this PR
 ```
 
+### Deep Investigation Workflow (for "New failure" verdicts)
+
+When a failure is classified as **New failure**, perform a full investigation to gather enough information for a high-quality Jira issue.
+
+#### Step 1: Identify the build commit
+
+Extract the exact commit SHA from the Jenkins build. This is the revision the tests ran against — **never use the local working copy** for investigation.
+
+```bash
+# Get the build's SCM revision
+curl -s --netrc "https://jenkins.scylladb.com/job/scylla-master/job/scylla-ci/<BUILD>/api/json?tree=actions[lastBuiltRevision[SHA1],buildsByBranchName[*[*]]]" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for action in data.get('actions', []):
+    rev = action.get('lastBuiltRevision', {}).get('SHA1')
+    if rev:
+        print(rev)
+        break
+"
+```
+
+Use GitHub MCP `get_file_contents` with `sha=<commit>` (or `ref=<commit>`) to read source files at that exact revision. **Do not** use the local checkout — the test may have run against a different version of the code.
+
+#### Step 2: Navigate Jenkins artifacts to get test logs
+
+Test logs are stored as build artifacts with a structure mirroring local `testlog/`:
+
+```
+https://jenkins.scylladb.com/job/scylla-master/job/scylla-ci/<BUILD>/artifact/testlog/x86_64/<mode>/failed_test/<test_dir>/
+```
+
+**Constructing the test directory name** from the Jenkins test report URL:
+- Test report URL: `.../testReport/junit/<package>/<class>/Unit_Tests_Custom___<mode>___<test_name>__<mode>_<iteration>/`
+- Extract: test name, pytest params, mode, iteration
+- Test name anatomy: `test_foo[param].mode.iteration`
+- Artifact URL encoding: `[` → `(`, `]` → `)` in the directory name
+
+Example:
+```
+Test: test_split_and_incremental_repair_synchronization[True].dev.89
+URL:  .../artifact/testlog/x86_64/dev/failed_test/test_split_and_incremental_repair_synchronization(True).dev.89/
+```
+
+**Fetching the artifact directory listing:**
+```bash
+curl -s --netrc "https://jenkins.scylladb.com/job/scylla-master/job/scylla-ci/<BUILD>/artifact/testlog/x86_64/<mode>/failed_test/<test_dir>/" \
+  | grep -oP 'href="[^"]*"' | grep -v '\.\.'
+```
+
+**Key files to fetch (in priority order):**
+1. `stacktrace.txt` — Python exception traceback (quick overview)
+2. `pytest.log` — full test framework log with timestamps
+3. `scylla-<worker>-<id>.log` — Scylla server logs (the real diagnostic data)
+
+```bash
+# Fetch a specific artifact file
+curl -s --netrc "https://jenkins.scylladb.com/job/scylla-master/job/scylla-ci/<BUILD>/artifact/testlog/x86_64/<mode>/failed_test/<test_dir>/<filename>"
+```
+
+#### Step 3: Analyze server logs
+
+Grep the Scylla server logs for crash/hang indicators:
+
+| Pattern to grep | Indicates |
+|-----------------|-----------|
+| `Segmentation fault` / `SIGSEGV` | Crash — needs backtrace decode |
+| `Aborting` / `SIGABRT` / `SCYLLA_ASSERT` | Assertion failure |
+| `Reactor stall` | Stall — look for duration and stack |
+| `std::bad_alloc` / `out of memory` | OOM |
+| `Exceptional future ignored` | Unhandled exception |
+| `connection refused` / `connection reset` | Node went down |
+| `seastar::broken_promise` | Shutdown race or crash |
+| `repair - ` / `raft_topology - ` | Domain-specific errors (match test subject) |
+
+If a crash backtrace is found, decode it using the backtrace symbolization service (see "Decoding Backtraces" section above). The build ID can be extracted from the server log's startup banner or `coredumps.info` artifact.
+
+**Timeline reconstruction:** Correlate timestamps across pytest.log (test actions) and scylla-*.log (server events) to build a timeline: what was the test doing when the server died?
+
+#### Step 4: Examine the relevant source code at build revision
+
+Once you identify the failing code path (from stack traces, error messages, or log context):
+
+1. **Read the source at the build's commit** — use GitHub MCP:
+   ```
+   get_file_contents(owner="scylladb", repo="scylladb", path="<file>", sha="<build_commit>")
+   ```
+   
+2. **Read the test source** at the same commit to understand test expectations:
+   ```
+   get_file_contents(owner="scylladb", repo="scylladb", path="test/<suite>/<test_file>", sha="<build_commit>")
+   ```
+
+3. **Trace the failing code path** — follow the call chain from the error location. Understand what the code is supposed to do and why it might have failed.
+
+**Never analyze using local files** unless you've verified they match the build commit. The local tree may have diverged (rebased, amended, or on a different branch).
+
+#### Step 5: Determine ownership via file history
+
+To assign the Jira issue correctly, identify who owns the relevant code:
+
+```bash
+# Check recent commits to the failing file (using GitHub MCP)
+list_commits(owner="scylladb", repo="scylladb", path="<failing_file>", perPage=10)
+
+# Or via gh CLI for blame info
+gh api repos/scylladb/scylladb/commits?path=<file>&per_page=10 --jq '.[].author.login'
+```
+
+**Assignment heuristic (in priority order):**
+1. **Author of the triggering change** — if git blame shows a recent commit that introduced/modified the failing code path, assign to that author
+2. **Most active recent contributor** — the person with the most commits to the file in the last 3-6 months
+3. **Test author** — if the test itself is new or recently modified, the test author may own the area
+4. **Module owner** — based on CODEOWNERS or team knowledge (e.g., `raft/` → Raft team, `sstables/` → Storage team)
+
+Use `list_commits` with `path=` to get recent contributors. Cross-reference with `git blame` output (via `get_file_contents` at specific lines if needed).
+
+#### Step 6: Create Jira issue
+
+Create a **high-quality Jira issue** with all gathered evidence:
+
+**Title format:** `<module>: <concise description of the failure>`
+
+**Description structure:**
+```markdown
+### Failure
+- **Test:** `test_name[params].mode.iteration`
+- **Build:** [#BUILD](https://jenkins.scylladb.com/job/scylla-master/job/scylla-ci/BUILD/)
+- **Commit:** `<sha>` (link to GitHub)
+- **First seen:** <date> (or "first failure in N runs" from Elasticsearch data)
+- **Frequency:** <N failures in M runs over period> (or "first occurrence")
+
+### Error
+```
+<cleaned-up error message / stack trace>
+```
+
+### Analysis
+<what the investigation revealed — timeline, root cause hypothesis, affected code path>
+
+### Relevant code
+- `<file>:<line>` — <brief description of what this code does>
+- Recent change: <commit SHA> by @<author> — "<commit message>" (if a recent change is suspicious)
+
+### Logs
+- [pytest.log](<artifact URL>)
+- [scylla server log](<artifact URL>)
+- [stacktrace.txt](<artifact URL>)
+```
+
+**Jira fields:**
+- **Project:** SCYLLADB
+- **Type:** Bug
+- **Priority:** P2 (default for test failures; P1 if crash/data loss; P3 if cosmetic)
+- **Assignee:** determined from Step 5
+- **Labels:** `flaky-test` (if intermittent), `ci-failure`
+- **Scylla components:** match the module (`customfield_10321`)
+
+#### Summary of the full investigation flow
+
+```
+Jenkins test report → error signature → artifacts (logs) → server crash analysis
+    → source code at build commit → code path tracing → file history for ownership
+    → Jira issue creation with full evidence
+```
+
