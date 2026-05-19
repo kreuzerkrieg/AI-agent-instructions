@@ -1,0 +1,217 @@
+{
+  "servers": {
+    "io.github.github/github-mcp-server": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "requestInit": {
+        "headers": {
+          "Authorization": ""
+        }
+      },
+      "x-metadata": {
+        "registry": {
+          "api": {
+            "baseUrl": "https://api.mcp.github.com",
+            "version": "v0.1"
+          },
+          "mcpServer": {
+            "name": "io.github.github/github-mcp-server",
+            "version": "0.34.0"
+          }
+        }
+      }
+    },
+    "io.github.wonderwhy-er/desktop-commander": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@wonderwhy-er/desktop-commander@0.2.38"
+      ],
+      "x-metadata": {
+        "registry": {
+          "api": {
+            "baseUrl": "https://api.mcp.github.com",
+            "version": "v0.1"
+          },
+          "mcpServer": {
+            "name": "io.github.wonderwhy-er/desktop-commander",
+            "version": "0.2.38"
+          }
+        }
+      }
+    },
+    "io.github.bytebase/dbhub": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@bytebase/dbhub@0.21.1"
+      ],
+      "env": {
+        "DSN": "",
+        "DB_TYPE": "",
+        "DB_HOST": "",
+        "DB_PORT": "",
+        "DB_USER": "",
+        "DB_PASSWORD": "",
+        "DB_NAME": "",
+        "TRANSPORT": "",
+        "PORT": "",
+        "ID": "",
+        "SSH_HOST": "",
+        "SSH_PORT": "",
+        "SSH_USER": "",
+        "SSH_PASSWORD": "",
+        "SSH_KEY": "",
+        "SSH_PASSPHRASE": ""
+      },
+      "x-metadata": {
+        "registry": {
+          "api": {
+            "baseUrl": "https://api.mcp.github.com",
+            "version": "v0.1"
+          },
+          "mcpServer": {
+            "name": "io.github.bytebase/dbhub",
+            "version": "0.21.1"
+          }
+        }
+      }
+    },
+    "io.github.brightdata/brightdata-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@brightdata/mcp@2.9.4"
+      ],
+      "env": {
+        "API_TOKEN": "",
+        "WEB_UNLOCKER_ZONE": "",
+        "BROWSER_ZONE": "",
+        "PRO_MODE": "",
+        "GROUPS": "",
+        "TOOLS": "",
+        "POLLING_TIMEOUT": "",
+        "BASE_TIMEOUT": "",
+        "BASE_MAX_RETRIES": ""
+      },
+      "x-metadata": {
+        "registry": {
+          "api": {
+            "baseUrl": "https://api.mcp.github.com",
+            "version": "v0.1"
+          },
+          "mcpServer": {
+            "name": "io.github.brightdata/brightdata-mcp",
+            "version": "2.9.4"
+          }
+        }
+      }
+    },
+    "io.github.tavily-ai/tavily-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "tavily-mcp@0.2.15"
+      ],
+      "env": {
+        "TAVILY_API_KEY": "",
+        "DEFAULT_PARAMETERS": ""
+      },
+      "x-metadata": {
+        "registry": {
+          "api": {
+            "baseUrl": "https://api.mcp.github.com",
+            "version": "v0.1"
+          },
+          "mcpServer": {
+            "name": "io.github.tavily-ai/tavily-mcp",
+            "version": "0.2.15"
+          }
+        }
+      }
+    },
+    "com.stackoverflow.mcp/mcp": {
+      "type": "http",
+      "url": "https://mcp.stackoverflow.com",
+      "x-metadata": {
+        "registry": {
+          "api": {
+            "baseUrl": "https://api.mcp.github.com",
+            "version": "v0.1"
+          },
+          "mcpServer": {
+            "name": "com.stackoverflow.mcp/mcp",
+            "version": "1.1.3"
+          }
+        }
+      }
+    },
+    "com.qualityclouds/mcp-server-qualityclouds": {
+      "type": "http",
+      "url": "https://mcp.qualityclouds.com/mcp",
+      "x-metadata": {
+        "registry": {
+          "api": {
+            "baseUrl": "https://api.mcp.github.com",
+            "version": "v0.1"
+          },
+          "mcpServer": {
+            "name": "com.qualityclouds/mcp-server-qualityclouds",
+            "version": "1.0.2"
+          }
+        }
+      }
+    },
+    "atlassian": {
+      "type": "http",
+      "url": "https://mcp.atlassian.com/v1/mcp"
+    },
+    "io.github.zcaceres/markdownify-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-markdownify-server@1.1.0"
+      ],
+      "env": {
+        "MARKITDOWN_PATH": "/home/ernest.zaslavsky/Development/scylladb/venv/bin/markitdown"
+      },
+      "x-metadata": {
+        "registry": {
+          "api": {
+            "baseUrl": "https://api.mcp.github.com",
+            "version": "v0.1"
+          },
+          "mcpServer": {
+            "name": "io.github.zcaceres/markdownify-mcp",
+            "version": "1.1.0"
+          }
+        }
+      }
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "victorialogs_clusters": {
+      "type": "remote",
+      "url": "https://victoria-logs-mcp.app.int.scylla.cloud/mcp",
+      "enabled": true
+    },
+    "victorialogs_infra": {
+      "type": "remote",
+      "url": "https://victoria-logs-infra-mcp.app.int.scylla.cloud/mcp",
+      "enabled": true
+    },
+    "metabase": {
+      "type": "remote",
+      "url": "https://scylladb.metabaseapp.com/api/mcp",
+      "enabled": true,
+      "oauth": {}
+    }
+  }
+}
