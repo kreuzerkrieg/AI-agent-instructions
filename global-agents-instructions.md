@@ -578,3 +578,16 @@ The agent created a PR without assigning it to the user.
 ### Determine "latest CI failure" by build number, not comment position (2026-05-19)
 The agent incorrectly concluded that a CI build wasn't the latest failure because it confused comment ordering with build chronology. It saw a numerically-higher comment ID for an earlier build and assumed a later build existed.
 **Correct approach:** To determine the latest CI failure on a PR, compare **build numbers** (higher = newer) or **comment timestamps** of bot CI result comments (the ones starting with "CI State: FAILURE/SUCCESS"). The latest CI failure is the bot CI result comment with the highest build number. Ignore non-CI comments (user replies, bot analyses) when determining this.
+
+### Verify metric types against source code, not just the mapping file (2026-05-19)
+The metrics mapping file (`scylladb_all_metrics_mapping.md`) had `scylla_s3_downloads_blocked_on_memory` labeled as "gauge" when the actual code uses `sm::make_counter`. The agent propagated this error into analysis reports, misinterpreting a monotonically-increasing counter as a simultaneous-blocked-downloads gauge.
+**Correct approach:** When a metric's behavior matters for analysis (e.g., whether values represent "right now" vs "total ever"), verify the type in the C++ source by checking `sm::make_gauge` vs `sm::make_counter` at the registration site. Common tells: if values only go up → counter; if values fluctuate up AND down → gauge. Fix the mapping file when discrepancies are found.
+
+### Prometheus metrics with scheduling group labels — always filter by `class` (2026-05-19)
+The agent initially read S3 metrics from `class="main"` (metadata/SSTable-open reads) instead of `class="sl:default"` (user query reads), underreporting GET request counts by 100×. ScyllaDB S3 metrics are emitted **per scheduling group** with a `class` label (values: `main`, `memtable`, `sl:default`, `streaming`, `compaction`, etc.).
+**Correct approach:** When analyzing user-facing read/write performance, always filter S3 metrics by `class="sl:default"`. When analyzing compaction I/O, use `class="compaction"`. Never sum across classes without understanding what each represents. The `class` label maps to Seastar scheduling groups.
+
+### Distinguish "SSTable objects loaded" from "SSTables actively being read" (2026-05-19)
+The agent confused `scylla_sstables_currently_open_for_reading` (gauge: total SSTable objects with open file handles = the loaded set) with `scylla_database_sstables_read` (gauge: SSTable reader objects currently alive = actively reading data). The former is ~425 constantly; the latter fluctuates 0–457 only during actual query processing.
+**Correct approach:** Use `scylla_database_sstables_read{class="sl:default"}` for "how many SSTables are being read concurrently by user queries right now." Use `scylla_sstables_currently_open_for_reading` only to count loaded SSTable objects on a shard (irrelevant to active I/O pressure).
+
