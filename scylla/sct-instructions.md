@@ -700,6 +700,63 @@ scylla_hints_manager_size_of_hints_in_progress
 
 ---
 
+## Argus CLI
+
+The `argus` CLI (`~/.local/bin/argus`, v0.1.2+) provides direct access to test run data from the terminal. It is the **preferred** method for querying Argus — use it instead of manual curl/API calls.
+
+### Prerequisites
+- Binary: `~/.local/bin/argus` (installed from `scylladb/argus` releases, `cli/v*` tags)
+- Cloudflared: `~/.local/bin/cloudflared` (needed for CF Access auth to argus.scylladb.com)
+- Config: `~/.config/argus-cli/config.yaml` with `url: https://argus.scylladb.com` and `use_cloudflare: true`
+
+### Authentication
+Argus production is behind Cloudflare Access. Auth is browser-based via Okta SSO:
+```bash
+~/.local/bin/argus auth
+```
+This opens a browser, authenticates via Okta, stores CF JWT + Argus session in system keychain. Re-run when session expires.
+
+The user's Argus PAT (Personal Access Token) can also be set via `ARGUS_AUTH_TOKEN` env var or stored with `argus auth headless` (requires CF service-token credentials too).
+
+### Key Commands
+
+| Command | Purpose |
+|---------|---------|
+| `argus run get --run-id <UUID>` | Basic run details (status, duration, build) |
+| `argus run details --run-id <UUID>` | Full run details |
+| `argus run events --run-id <UUID>` | CRITICAL and ERROR events |
+| `argus run nemeses --run-id <UUID>` | Nemesis records (start/end times, status) |
+| `argus run logs list --run-id <UUID>` | List available log files |
+| `argus run logs download --run-id <UUID> --name <filename>` | Download a specific log |
+| `argus run results --run-id <UUID>` | Result tables |
+| `argus run comments --run-id <UUID>` | Comments on the run |
+| `argus run activity --run-id <UUID>` | Activity log |
+| `argus run list --test-id <test-UUID> --limit N` | List recent runs for a test |
+| `argus api version` | Verify API connectivity |
+
+### Output Format
+- Default: JSON. Add `--text` for human-readable table format.
+- Use `--no-cache` to bypass local response cache for fresh data.
+- Use `--non-interactive` to prevent auth prompts (fail instead).
+
+### Typical Analysis Workflow
+```bash
+# 1. Get run overview
+argus run get --run-id <UUID> --text
+
+# 2. Check for errors
+argus run events --run-id <UUID>
+
+# 3. Check nemesis history
+argus run nemeses --run-id <UUID>
+
+# 4. List and download logs for deep analysis
+argus run logs list --run-id <UUID>
+argus run logs download --run-id <UUID> --name "sct-<suffix>.log.tar.zst" --output /tmp/
+```
+
+---
+
 ## Argus Test Run Links
 
 Every SCT run is tracked in [Argus](https://argus.scylladb.com), the test result tracking service. Each run has a unique UUID (`test_id`) that maps to an Argus URL.
