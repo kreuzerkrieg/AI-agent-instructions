@@ -1001,10 +1001,10 @@ Jenkins test report → error signature → artifacts (logs) → server crash an
     → Jira issue creation with full evidence
 ```
 
-## `$analyze-ci` — PR Bot Comment Triage Workflow
+## `$debunk` — PR Bot Comment Triage Workflow
 
 ### Trigger
-User provides a link to a PR bot comment containing CI failure results (e.g., `https://github.com/scylladb/scylladb/pull/NNN#issuecomment-XXXX`).
+User says `$debunk <URL>` where URL is a PR bot comment containing CI failure results (e.g., `$debunk https://github.com/scylladb/scylladb/pull/NNN#issuecomment-XXXX`).
 
 ### Workflow
 
