@@ -796,6 +796,42 @@ A unified MCP server for investigating SCT test run failures is being developed 
 
 ---
 
+## Confluence Knowledge Sources
+
+Key Confluence pages in the `RND` space (`scylladb.atlassian.net`) relevant to SCT work. Use the Atlassian MCP to fetch full content when needed.
+
+### Investigation & Triage Procedures
+
+| Page | ID | What it contains |
+|------|-----|-----------------|
+| [Tier1 Longevity Tests Ownership](https://scylladb.atlassian.net/wiki/spaces/RND/pages/136642692) | 136642692 | **Investigation workflow** for weekly master-branch test runs — failure classification (flaky/persistent/new), analysis steps, Argus log review |
+| [Triage tier1 SCT Argus jobs](https://scylladb.atlassian.net/wiki/spaces/RND/pages/102793710) | 102793710 | Triage quality standards — 1-week SLA, what constitutes a "good" filed issue |
+| [Issue triaging](https://scylladb.atlassian.net/wiki/spaces/RND/pages/9699392) | 9699392 | General ScyllaDB triage methodology — timeboxing, distinguishing symptoms from root causes |
+| [SCT Opening Issues/Tasks Procedure](https://scylladb.atlassian.net/wiki/spaces/RND/pages/65077648) | 65077648 | Rules for opening issues — type marking, assignment, labels |
+
+### Developer Guides
+
+| Page | ID | What it contains |
+|------|-----|-----------------|
+| [Getting started with SCT](https://scylladb.atlassian.net/wiki/spaces/RND/pages/81133746) | 81133746 | Onboarding — what is SCT, setup, running tests |
+| [SCT developer guide](https://scylladb.atlassian.net/wiki/spaces/RND/pages/81494021) | 81494021 | Adding nemesis, ICS example, developer workflow |
+| [How to create new SCT test case](https://scylladb.atlassian.net/wiki/spaces/RND/pages/82182565) | 82182565 | Longevity testing, writing nemesis, test configurations |
+| [SCT Upgrade Tests HOWTO](https://scylladb.atlassian.net/wiki/spaces/RND/pages/223805468) | 223805468 | Upgrade scenarios (major/minor), GKE+AWS, reading results |
+
+### Architecture & Design
+
+| Page | ID | What it contains |
+|------|-----|-----------------|
+| [SCT/Argus Migration to Tags/Labels](https://scylladb.atlassian.net/wiki/spaces/RND/pages/163807421) | 163807421 | Folder hierarchy → tag-based test grouping |
+| [Argus](https://scylladb.atlassian.net/wiki/spaces/RND/pages/106954981) | 106954981 | Argus documentation — scylla-trunk, staging, test graphs |
+| [SCT Maintainers Sync](https://scylladb.atlassian.net/wiki/spaces/RND/pages/217677915) | 217677915 | Maintainer-on-duty rotation, conflict resolution, backlog |
+
+### Cautionary Tale
+
+- **[Decoy Directory Issue: AI Band-Aid](https://scylladb.atlassian.net/wiki/spaces/RND/pages/235962371)** (page 235962371) — Post-mortem where AI suggested ignoring an error (band-aid fix that got merged), but the real root cause was a decoy directory confusing log collection. Lesson: always push for root cause, never accept "just ignore it" from AI suggestions.
+
+---
+
 ## Argus Test Run Links
 
 Every SCT run is tracked in [Argus](https://argus.scylladb.com), the test result tracking service. Each run has a unique UUID (`test_id`) that maps to an Argus URL.
