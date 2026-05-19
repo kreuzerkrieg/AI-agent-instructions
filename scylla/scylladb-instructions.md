@@ -1044,4 +1044,5 @@ After user reviews and approves:
 - **Never post PR comments without user approval** — always draft first
 - **Copy critical log snippets into Jira issues** — Jenkins artifacts expire in ~2 weeks
 - **Infrastructure failures** (disk full, OOM, worker crash) don't need Jira issues — just note in the reply
+- **CI retrigger:** If the analyzed comment is the **latest** CI failure on the PR, ask the user if they want to retrigger CI. If yes, append `@scylladbbot trigger-ci` at the end of the PR reply comment.
 
