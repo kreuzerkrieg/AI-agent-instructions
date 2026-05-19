@@ -984,13 +984,14 @@ Create a **high-quality Jira issue** with all gathered evidence:
 - **Project:** SCYLLADB
 - **Type:** Bug
 - **Priority:** P2 (default for test failures; P1 if crash/data loss; P3 if cosmetic)
-- **Assignee:** determined from Step 5
+- **Assignee:** do NOT set — Jira automation assigns team and assignee automatically based on Scylla components
+- **Team:** do NOT set — same as above
 - **Labels:**
   - `CI-Stability` — primary label for all CI test failures (capital C, hyphen)
   - `ci_stability` — also add (underscore variant, used by some dashboards)
   - `ai-assisted` — always add when the issue is created/analyzed by the AI agent
 - **Problem Symptom:** `ci stability` (custom field if available)
-- **Scylla components:** match the module (`customfield_10321`)
+- **Scylla components:** match the module (`customfield_10321`) — this drives automatic team/assignee routing
 
 #### Summary of the full investigation flow
 
