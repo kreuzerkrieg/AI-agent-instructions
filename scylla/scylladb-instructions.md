@@ -704,5 +704,120 @@ Setting `customfield_10001` (Team) via `createJiraIssue` fails with `"Team id 'J
 **Workaround:** Omit `customfield_10001` when creating issues via MCP. Set the Team field manually in Jira after creation. All other custom fields work fine: `customfield_10321` as `[{"id": "ID"}]`, `customfield_10985` as `{"id": "ID"}`, and `priority` as `{"id": "ID"}`.
 
 
+## CI Failure Analysis
 
+### Context
+
+When PR CI fails, `scylladbbot` posts two comments:
+1. **Status report** — raw Jenkins data: stage table, failed test list, Elasticsearch historical failure rates
+2. **AI analysis follow-up** — verdicts per test (Known flaky / Pre-existing / Infrastructure / Unrelated)
+
+**The follow-up analysis cannot be trusted.** It matches by test name only, without verifying that the error signature (stack trace, error message) matches the linked Jira issue. This leads to:
+- Marking genuinely new bugs as "Known flaky" (e.g., `test_raft_snapshot_truncation` linked to SCYLLADB-1471 when the actual failure was completely different)
+- Developers skipping investigation of real regressions
+- Erosion of trust in the CI system
+
+### Our Analyzer: Design Principles
+
+We build a **first-class CI failure analyzer** that the agent runs when the user asks to analyze CI failures. The key differentiator: **match by error signature, not just test name**.
+
+#### Verdict Categories
+| Verdict | Criteria | Action |
+|---------|----------|--------|
+| **Known issue** | Same test + same error message/stack trace pattern as an open Jira issue | Link Jira issue, safe to re-trigger |
+| **Likely known** | Same test + similar (but not identical) error pattern; or same test failing on `next` with same error | Link probable Jira issue, flag for quick manual verification |
+| **Infrastructure** | Disk full, OOM, worker crash, network timeout unrelated to test logic | Safe to re-trigger |
+| **New failure** | No matching Jira issue; error pattern not seen before or only on this PR | Requires investigation; may need new Jira issue |
+| **PR-related** | Test touches code paths modified by the PR; error is new | Definite regression, fix needed |
+
+#### Data Sources
+1. **Jenkins API** (`jenkins.scylladb.com`, auth in `~/.netrc`) — test report with full `errorDetails` + `errorStackTrace`
+2. **Jira** (Atlassian MCP) — search for open issues matching the error pattern
+3. **Elasticsearch data** (from bot's Comment 1) — historical failure rates, timestamps, nodes
+4. **PR diff** (GitHub MCP) — which files/functions the PR modifies (to determine if failure could be PR-related)
+5. **`next` pipeline status** — if the same test fails on `next` (no PR involved), it's pre-existing
+
+#### Error Signature Extraction
+
+From Jenkins `errorDetails` + `errorStackTrace`, extract:
+1. **Exception type** — e.g., `RuntimeError`, `TimeoutError`, `HTTPError`, `AssertionError`
+2. **Key error message** — the first meaningful line (strip paths, timestamps, node IDs)
+3. **Failure location** — file:line where the assertion/error fires (from stack trace)
+4. **Error pattern** — normalized form for comparison (strip run-specific data like UUIDs, ports, PIDs)
+
+Example normalization:
+```
+Raw:    "failed to start the node, server_id 120, IP 127.7.187.6, workdir scylla-gw6-120, host_id c4c5fc8c-..."
+Normal: "failed to start the node, server_id <N>, IP <IP>, workdir scylla-gw<W>-<N>, host_id <UUID>"
+```
+
+#### Workflow
+
+When the user says **`$analyze-ci`** (or asks to analyze CI failures):
+
+1. **Parse the bot's status comment** — extract failed test names and Jenkins build URL
+2. **Fetch failure details from Jenkins API** — for each failed test, get `errorDetails` + `errorStackTrace`
+3. **Classify infrastructure failures** — detect disk full, OOM, worker crash patterns:
+   - `"no space left on device"` or `"Critical disk utilization"`
+   - `"Out of memory"` or worker crash with no test output
+   - `"control_connection is not None"` assertion (known infra bug SCYLLADB-2065)
+4. **Extract error signatures** — normalize each failure's error pattern
+5. **Search Jira** — for each non-infra failure:
+   - Search by test name + key error phrases
+   - Compare the Jira issue description/comments against the actual error signature
+   - Only declare "Known issue" if the **error pattern matches**, not just the test name
+6. **Check `next` pipeline** — if the same test+error appears on `next` recently, it's pre-existing
+7. **Check PR overlap** — compare failed test's code path against PR's changed files
+8. **Produce verdict table** — with evidence links for each determination
+
+#### Jenkins API Patterns
+
+```bash
+# Get test report for a build
+curl -s --netrc "https://jenkins.scylladb.com/job/scylla-master/job/scylla-ci/<BUILD>/testReport/api/json?tree=suites[cases[name,className,status,errorDetails,errorStackTrace,duration]]"
+
+# Get specific failed test details
+curl -s --netrc "https://jenkins.scylladb.com/job/scylla-master/job/scylla-ci/<BUILD>/testReport/junit/<package>/<class>/<test>/api/json"
+
+# Get build info (SCM changes, parameters)
+curl -s --netrc "https://jenkins.scylladb.com/job/scylla-master/job/scylla-ci/<BUILD>/api/json"
+```
+
+#### Jira Search Patterns
+
+```
+# Search for open issues matching a test name and error pattern
+text ~ "test_name" AND text ~ "key_error_phrase" AND status != Done
+
+# Search by Scylla component
+project = SCYLLADB AND "Scylla components" = "Object Storage" AND text ~ "error_pattern"
+```
+
+#### Infrastructure Failure Signatures (auto-detect)
+
+| Pattern | Verdict |
+|---------|---------|
+| `no space left on device` | Infrastructure: disk full |
+| `Critical disk utilization: rejected write` | Infrastructure: disk full |
+| `WORKER CRASHED` or `gw<N> crashed` | Infrastructure: worker OOM |
+| `assert server.control_connection is not None` | Infrastructure: SCYLLADB-2065 |
+| All failures on same node + same timestamp range | Infrastructure: node-wide issue |
+| `Failed to add server` + OOM in server log | Infrastructure: OOM |
+
+#### Output Format
+
+```markdown
+## CI Failure Analysis — Build #<N>
+
+| # | Test | Verdict | Evidence |
+|---|------|---------|----------|
+| 1 | `test_foo.dev.1` | **Known issue** | [SCYLLADB-1234] — same `TimeoutError` in `repair.cc:456`. Jira has identical stack. |
+| 2 | `test_bar.dev.5` | **Infrastructure** | Disk full on spider7 — all 32 failures on same node |
+| 3 | `test_baz[s3].dev.2` | **New failure** | `S3 request failed: 404 Not Found` — never seen before. PR modifies `sstables/sstables.cc`. Needs investigation. |
+| 4 | `test_qux.dev.79` | **Likely known** | Same test fails on `next` (job#10889, 2 days ago) with similar error. Probable: [SCYLLADB-2074] |
+
+### Recommendation
+- Tests 1, 2, 4: Safe to re-trigger (`@scylladbbot trigger-ci`)
+- Test 3: Investigate — may be a regression introduced by this PR
+```
 
