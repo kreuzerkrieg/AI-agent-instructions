@@ -534,7 +534,7 @@
 
 > **Note:** In 2026.3.0~dev builds, the old `scylla_s3_total_{read,write}_{bytes,requests,latency_sec}` metrics were replaced by per-HTTP-method variants (`get`, `put`, `head`, `delete`, `post`, `connect`, `options`, `patch`, `trace`). The old names are listed at the end for reference.
 
-| `scylla_s3_downloads_blocked_on_memory` | gauge | utils/s3/client.cc | S3 downloads currently blocked waiting for memory |
+| `scylla_s3_downloads_blocked_on_memory` | counter | utils/s3/client.cc:280 | Counts the number of times S3 client downloads were delayed due to insufficient memory availability |
 | `scylla_s3_nr_active_connections` | gauge | utils/s3/client.cc | Total number of connections with running requests |
 | `scylla_s3_nr_connections` | gauge | utils/s3/client.cc | Total number of connections |
 | `scylla_s3_total_new_connections` | counter | utils/s3/client.cc | Total number of new connections created so far |
