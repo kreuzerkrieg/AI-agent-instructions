@@ -1000,3 +1000,47 @@ Jenkins test report → error signature → artifacts (logs) → server crash an
     → Jira issue creation with full evidence
 ```
 
+## `$analyze-ci` — PR Bot Comment Triage Workflow
+
+### Trigger
+User provides a link to a PR bot comment containing CI failure results (e.g., `https://github.com/scylladb/scylladb/pull/NNN#issuecomment-XXXX`).
+
+### Workflow
+
+**For each failed test in the bot's comment:**
+
+1. **Check bot's Jira link** — did the bot claim a matching issue exists?
+2. **Analyze the actual failure** — fetch error details from Jenkins (error message, stack trace, key log snippets from artifacts)
+3. **Verify bot's claim (if Jira link present):**
+   - Read the linked Jira issue description/comments
+   - Compare the actual error signature (exception type, message, stack location) against the Jira issue
+   - ✅ **Match** → verdict: "Confirmed — matches [SCYLLADB-NNNN]"
+   - ❌ **No match** → verdict: "Mismatch — bot linked [SCYLLADB-NNNN] but error signature differs. Candidate for new issue."
+4. **If no Jira link from bot** → candidate for new issue
+5. **Always search Jira** — regardless of bot's claim, search for:
+   - Test name (exact and partial)
+   - Key error message phrases
+   - Exception type + failing module
+   - This catches cases where an issue exists but the bot missed it
+
+### Output (draft file for user review)
+
+Save to `~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/analyze-ci-PR<number>-build<N>.md`:
+
+1. **Verdict table** — one row per failed test with: test name, verdict, evidence summary, Jira link (existing or "new needed")
+2. **For "new issue" candidates** — full Jira issue draft (following the template in "Step 6: Create Jira issue" above)
+3. **Draft PR reply comment** — concise response to be posted on the PR, summarizing findings
+
+### User approval → execution
+
+After user reviews and approves:
+1. Create Jira issues for approved "new issue" candidates
+2. Post the reply comment on the PR (via `add_issue_comment` with PR number)
+
+### Important rules
+- **Never trust the bot's verdict** — always verify by comparing actual error signatures
+- **Never create Jira issues without user approval** — always draft first
+- **Never post PR comments without user approval** — always draft first
+- **Copy critical log snippets into Jira issues** — Jenkins artifacts expire in ~2 weeks
+- **Infrastructure failures** (disk full, OOM, worker crash) don't need Jira issues — just note in the reply
+
