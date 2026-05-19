@@ -778,6 +778,22 @@ These MCP servers are configured in `~/.config/github-copilot/intellij/mcp.json`
 - **Metabase:** When querying historical test analytics, fleet metrics, or aggregated data across many runs.
 - **Atlassian:** When creating/updating Jira issues or reading Confluence documentation.
 
+### SCT Test Run Investigator (Planned)
+
+A unified MCP server for investigating SCT test run failures is being developed (design doc: [Confluence page](https://scylladb.atlassian.net/wiki/spaces/RND/pages/83427349)). Once deployed, it will replace the current workflow of querying individual data sources separately.
+
+**Architecture:**
+- Single MCP server combining: Argus (metadata), Victoria Logs (SCT + DB logs), Prometheus (metrics), Knowledge Base (instructions via RAG)
+- RAG-based instruction retrieval — dynamically fetches relevant investigation guidelines from `.md` files based on the query
+- History — stores investigation findings for continuation, review, and team sharing
+
+**Key design decisions:**
+- Separate generic MCP servers (like the VictoriaLogs ones above) were found too generic for ScyllaDB-specific investigations — the unified server provides tailored endpoints
+- Knowledge Base uses `# Description` + `# Instructions` format in `.md` files
+- Supports both local (dev) and remote (production, shared history) deployment
+
+**Status:** Design phase (v0.1, May 2025). Not yet deployed as an MCP server. Until available, continue using the individual MCP servers documented above.
+
 ---
 
 ## Argus Test Run Links
