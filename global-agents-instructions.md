@@ -583,3 +583,6 @@ The agent opened PRs without adding the `ai-assisted` label.
 The agent created a PR without assigning it to the user.
 **Correct approach:** When creating a PR, always assign it to the user (`kreuzerkrieg`). Use `update_pull_request` with `reviewers` or `gh pr edit --add-assignee` after creation if the create API doesn't support assignees directly.
 
+### Determine "latest CI failure" by build number, not comment position (2026-05-19)
+The agent incorrectly concluded that a CI build wasn't the latest failure because it confused comment ordering with build chronology. It saw a numerically-higher comment ID for an earlier build and assumed a later build existed.
+**Correct approach:** To determine the latest CI failure on a PR, compare **build numbers** (higher = newer) or **comment timestamps** of bot CI result comments (the ones starting with "CI State: FAILURE/SUCCESS"). The latest CI failure is the bot CI result comment with the highest build number. Ignore non-CI comments (user replies, bot analyses) when determining this.
