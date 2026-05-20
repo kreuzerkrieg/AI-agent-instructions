@@ -205,6 +205,11 @@ testlog/
 2. **Server log naming**: `scylla-gw<W>-<N>.log` where `W` is the pytest-xdist worker number and `N` is the server ID within that test's cluster (typically 13, 14, 15, 16 for a 4-node cluster)
 
 3. **Server logs at top-level `testlog/<mode>/`**: In addition to server logs inside `failed_test/` directories, the same server logs are also available at `testlog/x86_64/<mode>/scylla-gw<W>-<N>.log` (Jenkins artifact path). When fetching from Jenkins, both paths may work depending on how artifacts are structured.
+   - **Full Jenkins URL for top-level server logs:**
+     ```
+     https://jenkins.scylladb.com/job/scylla-master/job/scylla-ci/<BUILD>/artifact/testlog/x86_64/<mode>/scylla-gw<W>-<N>.log
+     ```
+   - This is the log you MUST link to in Jira issues and PR comments when `found_errors.txt` references it.
 
 4. **Cluster log**: `<worker>.<suite>.<test>.<mode>.<run#>_cluster.log` in `testlog/<mode>/` — contains cluster manager operations (server add/stop/remove)
 
