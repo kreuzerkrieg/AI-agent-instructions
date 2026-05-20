@@ -108,6 +108,21 @@ Also check **[cursor.directory](https://cursor.directory/)** — a community-cur
 
 ---
 
+## `$cmd` — List All Commands
+
+When the user types **`$cmd`**, list all defined `$`-prefixed commands with a one-line description of each. Scan both global and project-specific instruction files for command definitions. Current commands:
+
+| Command | Defined in | Description |
+|---------|-----------|-------------|
+| `$cmd` | global | List all defined `$` commands |
+| `$plan-review` | global | Phase 1: plan responses to PR review comments (no changes until approved) |
+| `$finalize-review` | global | Phase 2: execute approved plan from `$plan-review` |
+| `$debunk <URL>` | scylladb | Triage a PR bot CI failure comment — verify each claim, propose Jira issues |
+
+**Maintenance:** When adding a new `$` command to any instruction file, also add it to this table.
+
+---
+
 ## Scratch / Temporary Files (CLion-specific)
 When creating **any** temporary or scratch files — analysis docs, migration call-chain notes, diagrams, test timing reports, query results, generated tables, or any other output that is not a source-code change — save them under the CLion scratches directory instead of polluting the repository tree:
 ```
