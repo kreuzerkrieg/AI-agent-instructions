@@ -155,6 +155,45 @@ When creating **any** temporary or scratch files — analysis docs, migration ca
 ```
 Create the directory if it does not exist. **Never** place such files inside the repository working tree. This applies even when the user asks you to "build a table" or "save the results" — always default to the scratches directory unless the user explicitly specifies a different path.
 
+## Secret Scanning — Git Hooks
+
+Every machine and repo must have **gitleaks** pre-commit/pre-push hooks installed. These hooks
+stop credentials from ever being committed or pushed.
+
+### New-machine setup (run once per machine)
+
+```bash
+# 1. Install gitleaks
+sudo dnf install gitleaks          # Fedora/RHEL
+# brew install gitleaks             # macOS
+
+# 2. Install the custom config (catches Jenkins tokens, netrc patterns, etc.)
+cp ~/.config/github-copilot/intellij/scylla/gitleaks.toml ~/.gitleaks.toml
+
+# 3. Install hooks into any repo you work with
+bash ~/.config/github-copilot/intellij/scylla/bin/install-secret-hooks ~/Development/scylladb
+bash ~/.config/github-copilot/intellij/scylla/bin/install-secret-hooks ~/.config/github-copilot/intellij
+# Run for any other repos as needed
+```
+
+### What the hooks catch
+- **pre-commit**: scans the staged diff before every commit — blocks the commit if a secret is found
+- **pre-push**: scans all unpushed commits before push — last-chance safety net
+- Custom rules cover: Jenkins API tokens (hex 32-40 chars), netrc `password` lines, high-entropy strings near credential keywords, GitHub PATs (`ghp_...`), AWS access keys
+
+### If a hook fires
+1. Remove the secret from the file
+2. Use a placeholder: `<JENKINS_API_TOKEN>`, `<YOUR_PASSWORD>`, etc.
+3. `git add` and retry the commit
+4. If it's a genuine false positive (e.g., a test vector): `git commit --no-verify` — but use this extremely rarely and only after confirming it's not a real credential
+
+### If a secret was already committed
+1. `git-filter-repo --replace-text <(echo 'SECRET==>PLACEHOLDER')` — rewrites all history
+2. `git push --force`
+3. **Rotate the credential immediately** — assume it's compromised
+
+---
+
 ## Version Control for Instruction Files
 The instruction files directory (`~/.config/github-copilot/intellij/`) is a git repository tracked at `git@github.com:kreuzerkrieg/AI-agent-instructions.git`. **After making any edit** to files in this directory, commit and push the change:
 ```bash
