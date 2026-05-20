@@ -126,6 +126,57 @@ aws --profile 797456418907-DevOpsAccessRole sts get-caller-identity
 - `pexpect` — installed in system venv (`pip install pexpect`)
 - `~/.config/gimme-aws-creds-pass` — Okta password, chmod 600 (local only, not in git)
 
+### New machine setup (run once per machine — laptop, desktop, etc.)
+
+The `refresh-aws-creds` script lives in the instructions repo at `scylla/bin/refresh-aws-creds`.
+After `git pull --rebase`, run this to install it:
+
+```bash
+# 1. Install pexpect into the system Python (needed by the script's shebang /usr/bin/env python3)
+pip install pexpect
+
+# 2. Install the script
+mkdir -p ~/.local/bin
+cp ~/.config/github-copilot/intellij/scylla/bin/refresh-aws-creds ~/.local/bin/refresh-aws-creds
+chmod +x ~/.local/bin/refresh-aws-creds
+
+# 3. Create the Okta config (if not already present)
+#    Copy from this machine: ~/.okta_aws_login_config
+#    Or create it — content is in arm-instance-setup.md section below.
+
+# 4. Create the password file — ask the user for their Okta password
+printf '<okta-password>\n' > ~/.config/gimme-aws-creds-pass
+chmod 600 ~/.config/gimme-aws-creds-pass
+
+# 5. Verify
+refresh-aws-creds --help 2>/dev/null || python3 ~/.local/bin/refresh-aws-creds --help
+```
+
+### `~/.okta_aws_login_config` content (for new machine setup)
+
+```ini
+[DEFAULT]
+okta_org_url = https://scylladb.okta.com
+okta_auth_server =
+client_id = 0oab7271m7nRkKmlw5d7
+gimme_creds_server = appurl
+aws_appname =
+write_aws_creds = True
+cred_profile = acc-role
+okta_username = ernest.zaslavsky@scylladb.com
+app_url = https://scylladb.okta.com/home/amazon_aws/0oa2uxps59d96E5Cj5d7/272
+resolve_aws_alias = False
+include_path = False
+remember_device = True
+preferred_mfa_type = Okta
+aws_default_duration = 21600
+output_format =
+
+[tests]
+inherits = DEFAULT
+aws_rolename = arn:aws:iam::797456418907:role/DeveloperAccessRole
+```
+
 ---
 
 ## 5. PEM File — Multi-Machine Setup

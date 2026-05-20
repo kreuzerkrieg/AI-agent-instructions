@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""
+Refresh ScyllaDB AWS credentials via gimme-aws-creds + Okta TOTP.
+
+Usage:  refresh-aws-creds
+        refresh-aws-creds <totp-code>   # pass code as argument (for agent use)
+
+Everything is automated except the 6-digit TOTP code from Google Authenticator.
+Password is read from ~/.config/gimme-aws-creds-pass (chmod 600).
+"""
+
+import sys
+import os
+import pexpect
+
+GIMME = "/home/ernest.zaslavsky/Development/scylladb/venv/bin/gimme-aws-creds"
+PASS_FILE = os.path.expanduser("~/.config/gimme-aws-creds-pass")
+TIMEOUT = 30
+
+
+def get_password():
+    with open(PASS_FILE) as f:
+        return f.read().strip()
+
+
+def main():
+    totp = sys.argv[1] if len(sys.argv) > 1 else None
+    password = get_password()
+
+    child = pexpect.spawn(GIMME, encoding="utf-8", timeout=TIMEOUT)
+    child.logfile_read = sys.stdout  # echo output to terminal
+
+    # --- password prompt (keyring unavailable in PTY context) ---
+    child.expect(r"Okta Password for [^:]+:\s*")
+    child.sendline(password)
+
+    # --- "save password in keyring?" --- send y to keep keyring up to date
+    child.expect(r"save this password in the keyring\? \(y/N\)\s*")
+    child.sendline("y")
+
+    # --- factor selection: always 0 (Google TOTP) ---
+    child.expect(r"Selection:\s*")
+    child.sendline("0")
+
+    # --- TOTP code: the only human input needed ---
+    child.expect(r"Enter verification code:\s*")
+    if totp is None:
+        sys.stdout.write("\n>>> Enter Google Authenticator code: ")
+        sys.stdout.flush()
+        totp = input()
+    child.sendline(totp)
+
+    # --- role selection: always 0 (DevOpsAccessRole) ---
+    child.expect(r"Selections \(comma separated\):\s*")
+    child.sendline("0")
+
+    # --- wait for finish ---
+    child.expect(pexpect.EOF, timeout=60)
+    print()
+
+
+if __name__ == "__main__":
+    main()
