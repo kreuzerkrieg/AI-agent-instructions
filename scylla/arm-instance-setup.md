@@ -12,7 +12,7 @@
 | **Region** | `us-east-1` (N. Virginia) |
 | **Instance type** | `c6g.8xlarge` (32 vCPUs, 64 GB RAM, AWS Graviton2, aarch64) |
 | **OS** | Ubuntu 24.04 LTS (aarch64) |
-| **Current public IP** | `3.91.29.41` ⚠️ *changes on stop/start — always re-check after starting* |
+| **Current public IP** | `52.201.215.77` ⚠️ *changes on stop/start — always re-check after starting* |
 | **User** | `ubuntu` |
 
 ---
@@ -468,7 +468,35 @@ aws --profile 797456418907-DevOpsAccessRole ec2 stop-instances \
 
 ---
 
-## 8. Why CI Uses Fedora (not Ubuntu)
+## 8. Repro Loop — Lessons Learned
+
+### toxiproxy leftover causes false positives (2026-05-20)
+
+When running `test.py --repeat N` in a loop, the toxiproxy-server started by one run may not
+be fully cleaned up before the next run's session startup. The next run then fails with:
+
+```
+toxiproxy-cli failed: Command 'toxiproxy-cli ... create ... p5000' returned non-zero exit status 1.
+Failed to create proxy: Create: HTTP 409: proxy already exists
+```
+
+This manifests as a pytest `INTERNALERROR` (due to the exception during `pytest_sessionstart`)
+and the loop counts it as a test failure — a **false positive**.
+
+**Fix:** Call `pkill -9 toxiproxy-server || true && sleep 1` before each attempt in the loop.
+
+### ldap_server.py format string typo (2026-05-20)
+
+Line 178 of `test/pylib/ldap_server.py` had `"s%"` instead of `"%s"`, turning any
+toxiproxy startup error into a double-exception (`ValueError: incomplete format`) that:
+1. Made the diagnostic message unreadable
+2. Turned the INTERNALERROR more severe (hard to distinguish from a real pytest bug)
+
+**Fix applied on ARM instance:** `s%` → `%s`. This should also be submitted as a standalone PR.
+
+---
+
+## 9. Why CI Uses Fedora (not Ubuntu)
 
 ScyllaDB CI nodes run **Fedora exclusively**, including on ARM. The Ansible playbooks in
 `scylla-pkg` (repo: `scylladb/scylla-pkg`) only contain `ansible/roles/jenkins-node/tasks/fedora-setup.yml`.
