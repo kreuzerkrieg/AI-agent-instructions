@@ -127,13 +127,11 @@ LD_LIBRARY_PATH=/usr/local/lib/scylla-toolchain ./test.py \
 Full setup details (Ubuntu-specific patches, library extraction, slapd config):
 `scylla/arm-instance-setup.md` (in this instructions repo)
 
-**AWS credentials** expire periodically. Check expiry:
+**AWS credentials** expire every ~6 hours. Refresh with:
 ```bash
-grep x_security_token_expires ~/.aws/credentials
+~/Development/scylladb/venv/bin/gimme-aws-creds
+# select [0] GOOGLE TOTP, enter code, select DevOpsAccessRole
 ```
-To refresh: obtain new temporary credentials via AWS Console (IAM Identity Center →
-DevOpsAccessRole → "Command line or programmatic access") and update `~/.aws/credentials`.
-The exact refresh workflow (SSO/saml2aws) needs to be documented — ask the team.
 
 ### Common notes
 - Source files and targets are tracked in `configure.py` (and `CMakeLists.txt`) — update when adding/removing files
