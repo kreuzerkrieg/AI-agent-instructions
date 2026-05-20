@@ -194,10 +194,19 @@ testlog/
    - `stacktrace.txt` — the Python exception/timeout traceback
    - `pytest.log` — test framework log with timestamps, cluster setup, API calls
    - `scylla-<worker>-<id>.log` — individual Scylla node logs (the most detailed; grep for `repair`, `raft_topology`, etc.)
+   - `found_errors.txt` — summary of critical errors (ASAN, SEGV, abort) found across all server logs for this test. Format:
+     ```
+     Server <N>: found <count> critical error(s) (log: scylla-gw<W>-<N>.log)
+       <first error line>
+       <summary line>
+     ```
+     This file tells you WHICH server log to look at for the full error. Always fetch and analyze the referenced `scylla-gw<W>-<N>.log` for the full stack trace and context.
 
 2. **Server log naming**: `scylla-gw<W>-<N>.log` where `W` is the pytest-xdist worker number and `N` is the server ID within that test's cluster (typically 13, 14, 15, 16 for a 4-node cluster)
 
-3. **Cluster log**: `<worker>.<suite>.<test>.<mode>.<run#>_cluster.log` in `testlog/<mode>/` — contains cluster manager operations (server add/stop/remove)
+3. **Server logs at top-level `testlog/<mode>/`**: In addition to server logs inside `failed_test/` directories, the same server logs are also available at `testlog/x86_64/<mode>/scylla-gw<W>-<N>.log` (Jenkins artifact path). When fetching from Jenkins, both paths may work depending on how artifacts are structured.
+
+4. **Cluster log**: `<worker>.<suite>.<test>.<mode>.<run#>_cluster.log` in `testlog/<mode>/` — contains cluster manager operations (server add/stop/remove)
 
 ### Useful commands for log analysis
 ```bash
