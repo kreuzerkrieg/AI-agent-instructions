@@ -51,6 +51,38 @@ Prefix any command with `./tools/toolchain/dbuild` to use the official build env
 ./tools/toolchain/dbuild ninja dev-build
 ```
 
+### Building on ARM (aarch64 / AWS Graviton)
+
+ScyllaDB builds natively on aarch64 Linux. The frozen toolchain image (`tools/toolchain/image`) is a multi-arch image that includes both `x86_64` and `aarch64` variants — Docker/Podman selects the correct one automatically on Graviton EC2 instances.
+
+#### ARM-specific quirks
+
+- **PGO profile absent**: `pgo/profiles/aarch64/profile.profdata.xz` is not included in the repo by default (Git LFS stub). The configure step will print:
+  ```
+  WARNING: pgo/profiles/aarch64/profile.profdata.xz is not an archive. Building without a profile.
+  ```
+  This is **expected and harmless** — the build proceeds without profile-guided optimization.
+
+- **Silent phase after cmake outputs**: After configure prints the cmake outputs for Seastar and Abseil, there is a long *silent* phase (~5–20 minutes on Graviton2/3 depending on instance size) where configure.py:
+  1. Generates the full `build.ninja` (pure Python — no output)
+  2. Runs `ninja -t compdb` to generate `compile_commands.json` (no output)
+  If the process appears "stuck" after the Abseil cmake output, it is **not hung — just working silently**. Verify it is still alive with:
+  ```bash
+  docker ps | grep scylla               # is the container still running?
+  docker stats --no-stream              # CPU activity confirms progress
+  ```
+
+- **Instance size requirements**: Release builds need significant RAM. Each linker job can use 4+ GB. Recommended minimum:
+  - `c7g.4xlarge` or `m7g.4xlarge` (16+ cores, 16+ GB RAM) for a comfortable build
+  - `t4g.small`/`medium` will work but very slowly due to memory pressure
+
+- **Native Ubuntu build (without Docker)**: If you prefer to skip the toolchain container:
+  ```bash
+  ./install-dependencies.sh        # installs all build deps on Ubuntu aarch64
+  ./configure.py --mode release    # configure directly
+  ninja build/release/scylla       # build
+  ```
+
 ### Common notes
 - Source files and targets are tracked in `configure.py` (and `CMakeLists.txt`) — update when adding/removing files
 - `test.py` does **not** auto-rebuild; you must build before running tests
