@@ -1,5 +1,28 @@
 # Global AI Coding Agent Instructions
 
+---
+
+# 🚨🚨🚨 NEVER EVER COMMIT CREDENTIALS TO GIT — NOT EVEN ONCE 🚨🚨🚨
+
+> ## ‼️ THIS IS THE SINGLE MOST IMPORTANT RULE IN THIS ENTIRE FILE ‼️
+>
+> **CREDENTIALS — API TOKENS, PASSWORDS, SECRETS, KEYS — MUST _NEVER_ APPEAR IN ANY FILE THAT GETS COMMITTED OR PUSHED TO GIT. EVER. NO EXCEPTIONS.**
+>
+> ### What happened (2026-05-20):
+> The agent wrote a real Jenkins API token literally into `scylladb-instructions.md` as part of a curl example, committed it, and **pushed it to a public GitHub repository**. The token had to be **immediately rotated**, the entire repo history had to be **rewritten with `git-filter-repo`** and **force-pushed**, and a **new token had to be issued**.
+>
+> ### The rule — memorize it:
+> - ✅ **DO:** Put `<JENKINS_API_TOKEN>` or `<YOUR_TOKEN_HERE>` in docs/examples
+> - ✅ **DO:** Keep real secrets in `~/.netrc` (chmod 600), never in any tracked file
+> - ✅ **DO:** If you accidentally commit a secret: immediately `git-filter-repo --replace-text`, force push, AND tell the user to rotate the credential
+> - ❌ **NEVER:** Put a real token, password, or key in any `.md`, `.sh`, `.json`, `.yaml`, or any other file in a git repo
+> - ❌ **NEVER:** Write `password abc123xyz` in a code example — always use `password <YOUR_PASSWORD>`
+> - ❌ **NEVER:** Copy a value from `~/.netrc` or any secrets file into instruction files or documentation
+>
+> **If you are about to write something that looks like `[a-f0-9]{32,}` or `ghp_...` or `Bearer ...` into a file — STOP. Use a placeholder instead.**
+
+---
+
 **This is the global instructions file** (`~/.config/github-copilot/intellij/global-agents-instructions.md`). It is loaded for every conversation regardless of which repository is open. Repository-specific instructions live in `.github/copilot-instructions.md` inside each repo.
 
 ---
@@ -608,6 +631,9 @@ The agent initially read S3 metrics from `class="main"` (metadata/SSTable-open r
 The agent confused `scylla_sstables_currently_open_for_reading` (gauge: total SSTable objects with open file handles = the loaded set) with `scylla_database_sstables_read` (gauge: SSTable reader objects currently alive = actively reading data). The former is ~425 constantly; the latter fluctuates 0–457 only during actual query processing.
 **Correct approach:** Use `scylla_database_sstables_read{class="sl:default"}` for "how many SSTables are being read concurrently by user queries right now." Use `scylla_sstables_currently_open_for_reading` only to count loaded SSTable objects on a shard (irrelevant to active I/O pressure).
 
+### Never embed credentials in instruction files — use placeholder and ~/.netrc (2026-05-20)
+The agent copied the Jenkins API token literally into `scylladb-instructions.md` as part of a curl example, then committed and pushed it to the public-facing instructions repo on GitHub.
+**Correct approach:** Credentials (API tokens, passwords, keys) must NEVER appear in any instruction file. In code examples, always use `<JENKINS_API_TOKEN>` or `$(cat ~/.netrc | ...)` style references. The actual secret lives only in `~/.netrc` (chmod 600) and is never written to any file that gets committed. If a secret is accidentally committed, immediately: (1) rewrite history with `git-filter-repo --replace-text`, (2) force push, (3) rotate the credential.
 ### Never embed credentials in instruction files — use placeholder and ~/.netrc (2026-05-20)
 The agent copied the Jenkins API token literally into `scylladb-instructions.md` as part of a curl example, then committed and pushed it to the public-facing instructions repo on GitHub.
 **Correct approach:** Credentials (API tokens, passwords, keys) must NEVER appear in any instruction file. In code examples, always use `<JENKINS_API_TOKEN>` or `$(cat ~/.netrc | ...)` style references. The actual secret lives only in `~/.netrc` (chmod 600) and is never written to any file that gets committed. If a secret is accidentally committed, immediately: (1) rewrite history with `git-filter-repo --replace-text`, (2) force push, (3) rotate the credential.
