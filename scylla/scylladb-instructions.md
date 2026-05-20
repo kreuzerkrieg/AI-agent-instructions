@@ -83,6 +83,58 @@ ScyllaDB builds natively on aarch64 Linux. The frozen toolchain image (`tools/to
   ninja build/release/scylla       # build
   ```
 
+#### Personal ARM test instance (ernest's dev instance)
+
+| Field | Value |
+|-------|-------|
+| **Instance ID** | `i-05ccc6ae22cf5bc94` |
+| **Region** | `us-east-1` (N. Virginia) |
+| **Type** | `c6g.8xlarge` (32 vCPUs, 64 GB RAM, Graviton2) |
+| **OS** | Ubuntu 24.04 aarch64 |
+| **SSH user** | `ubuntu` |
+| **SSH key** | `~/.ssh/ernest.pem` (or `~/Downloads/ernest.pem`) |
+| **AWS profile** | `797456418907-DevOpsAccessRole` |
+
+The public IP **changes on each start**. After starting, retrieve the new IP:
+```bash
+aws --profile 797456418907-DevOpsAccessRole ec2 start-instances \
+  --instance-ids i-05ccc6ae22cf5bc94 --region us-east-1
+
+aws --profile 797456418907-DevOpsAccessRole ec2 wait instance-running \
+  --instance-ids i-05ccc6ae22cf5bc94 --region us-east-1
+
+aws --profile 797456418907-DevOpsAccessRole ec2 describe-instances \
+  --instance-ids i-05ccc6ae22cf5bc94 --region us-east-1 \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' --output text
+```
+
+When done, **stop the instance** (saves cost):
+```bash
+aws --profile 797456418907-DevOpsAccessRole ec2 stop-instances \
+  --instance-ids i-05ccc6ae22cf5bc94 --region us-east-1
+```
+
+**Running tests on this instance** — requires `LD_LIBRARY_PATH` override because the Scylla
+binary was built with the Fedora toolchain but Ubuntu's `libcares.so.2` is too old:
+```bash
+source ~/scylla-test-venv/bin/activate
+cd ~/Development/scylladb
+LD_LIBRARY_PATH=/usr/local/lib/scylla-toolchain ./test.py \
+  --no-gather-metrics --mode release \
+  test/cluster/object_store/test_backup.py::test_restore_tablets[gs-topology1]
+```
+
+Full setup details (Ubuntu-specific patches, library extraction, slapd config):
+`~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/arm-instance-setup.md`
+
+**AWS credentials** expire periodically. Check expiry:
+```bash
+grep x_security_token_expires ~/.aws/credentials
+```
+To refresh: obtain new temporary credentials via AWS Console (IAM Identity Center →
+DevOpsAccessRole → "Command line or programmatic access") and update `~/.aws/credentials`.
+The exact refresh workflow (SSO/saml2aws) needs to be documented — ask the team.
+
 ### Common notes
 - Source files and targets are tracked in `configure.py` (and `CMakeLists.txt`) — update when adding/removing files
 - `test.py` does **not** auto-rebuild; you must build before running tests
