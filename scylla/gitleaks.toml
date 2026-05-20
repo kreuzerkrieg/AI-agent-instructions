@@ -1,0 +1,78 @@
+# Global gitleaks configuration
+# Place at ~/.gitleaks.toml — reference with: gitleaks ... -c ~/.gitleaks.toml
+
+title = "Ernest's Secret Scanner"
+
+# ── Extend the built-in rules (don't replace them) ──────────────────────────
+[extend]
+useDefault = true
+
+# ── Custom rules ─────────────────────────────────────────────────────────────
+
+[[rules]]
+id = "jenkins-api-token"
+description = "Jenkins API Token (hex string)"
+regex = '''(?i)(jenkins[_-]?(api[_-]?)?token|jenkins[_-]?password)\s*[=:\"'\s]\s*([0-9a-f]{32,40})'''
+secretGroup = 3
+[rules.allowlist]
+regexes = ['^[0]{32,}$', '^[f]{32,}$', '^<.*>$', '^YOUR_', '^JENKINS_API_TOKEN']
+
+[[rules]]
+id = "netrc-password"
+description = "~/.netrc style password entry"
+regex = '''(?i)^\s*password\s+([^\s<>]{8,})'''
+secretGroup = 1
+[rules.allowlist]
+regexes = ['^<', '^YOUR_', '^REPLACE', 'TOKEN_HERE', 'PASSWORD_HERE', '^\$\(']
+
+[[rules]]
+id = "generic-hex-token-near-keyword"
+description = "High-entropy hex token near credential keyword"
+regex = '''(?i)(?:password|token|secret|api[_-]?key|credential|auth)\s*[=:\"'\s]\s*([0-9a-f]{32,64})\b'''
+secretGroup = 1
+entropy = 3.5
+[rules.allowlist]
+# Allow obvious placeholders, git SHAs in code, test vectors
+regexes = [
+  '^[0-9a-f]{40}$',           # pure git SHA (40 hex chars exactly)
+  '^0{8,}',                   # all zeros padding
+  'deadbeef',                 # common test values
+  '^<', '^YOUR_', '^REPLACE',
+]
+paths = [
+  '''test/''',
+  '''\.md$''',                  # only if confirmed not a real value
+  '''Makefile''',
+]
+
+[[rules]]
+id = "github-token"
+description = "GitHub Personal Access Token"
+regex = '''ghp_[0-9a-zA-Z]{36}'''
+
+[[rules]]
+id = "aws-access-key"
+description = "AWS Access Key ID"
+regex = '''AKIA[0-9A-Z]{16}'''
+
+# ── Global allowlist ─────────────────────────────────────────────────────────
+[allowlist]
+description = "Global allowlist for false positives"
+regexes = [
+  # Placeholder patterns used in documentation
+  '''<[A-Z_]+>''',
+  '''<YOUR_.*>''',
+  '''REPLACE_ME''',
+  # Build IDs and commit SHAs in code
+  '''BuildID\[sha1\]''',
+]
+paths = [
+  # Binary files
+  '''\.png$''', '''\.jpg$''', '''\.gif$''', '''\.pdf$''', '''\.zip$''',
+  '''\.tar\.gz$''', '''\.whl$''', '''\.pyc$''',
+  # Lock files
+  '''\.lock$''', '''flake\.lock$''',
+  # Compiled output
+  '''build/''',
+]
+
