@@ -1,7 +1,6 @@
 # ARM Test Instance — Full Setup Reference
 
-**Last updated:** 2026-05-20  
-**Status of test run:** 1000-repeat run launched 2026-05-20, 57% complete as of writing
+**Last updated:** 2026-05-20
 
 ---
 
@@ -319,6 +318,34 @@ sudo ln -s /etc/apparmor.d/usr.sbin.slapd /etc/apparmor.d/disable/usr.sbin.slapd
 sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.slapd
 ```
 
+#### 5. Additional Ubuntu packages required
+These are not present on Ubuntu by default but needed by tests:
+```bash
+# saslauthd — required by SASL/LDAP tests
+sudo apt-get install -y sasl2-bin
+
+# toxiproxy-server (aarch64 build) — required by network fault injection tests
+# Ubuntu apt doesn't have toxiproxy; install arm64 binary from GitHub releases
+TOXI_VER=2.9.0
+curl -sL "https://github.com/Shopify/toxiproxy/releases/download/v${TOXI_VER}/toxiproxy-server-linux-arm64" \
+  -o /tmp/toxiproxy-server
+sudo install -m755 /tmp/toxiproxy-server /usr/local/bin/toxiproxy-server
+sudo install -m755 /tmp/toxiproxy-cli /usr/local/bin/toxiproxy-cli || true
+# Verify:
+toxiproxy-server --version
+```
+
+#### 6. pytest version — must be 9.0.3+
+Ubuntu's default `pytest` (or older pip installs) will be 7.x or 8.x and fail with
+`AttributeError: '_StoreTrueAction' object has no attribute 'deprecated'`
+or similar. Always install the required version:
+```bash
+source ~/scylla-test-venv/bin/activate
+pip install --ignore-installed "pytest==9.0.3"
+# Verify:
+pytest --version  # should show 9.0.3
+```
+
 ---
 
 ## 7. Running Tests
@@ -332,23 +359,111 @@ LD_LIBRARY_PATH=/usr/local/lib/scylla-toolchain ./test.py \
   test/cluster/object_store/test_backup.py::test_restore_tablets[gs-topology1]
 ```
 
-### 1000-repeat stability run (launched 2026-05-20)
+### Multi-phase flaky-test reproduction loop
+
+When investigating a flaky/intermittent bug, use a multi-phase reproduction loop that
+escalates from faster builds (release) to more debuggable ones (debug, dev). This loop:
+- Runs N×100 repetitions per phase
+- Stops immediately on first failure and archives artifacts
+- Automatically moves to the next phase if no failure found
+- Logs all results to `~/test-repro-logs/summary.log`
+
+**Template script** (save as `~/repro-loop.sh` on the ARM instance):
 ```bash
-source ~/scylla-test-venv/bin/activate
-cd ~/Development/scylladb
-rm -rf testlog/*
-nohup bash -c "LD_LIBRARY_PATH=/usr/local/lib/scylla-toolchain ./test.py \
-  --no-gather-metrics --max-failures 1 --mode release --repeat 1000 \
-  test/cluster/object_store/test_backup.py::test_restore_tablets[gs-topology1]" \
-  > ~/test-run-1000.log 2>&1 &
+#!/bin/bash
+VENV=~/scylla-test-venv
+SCYLLA_DIR=~/Development/scylladb
+export LD_LIBRARY_PATH=/usr/local/lib/scylla-toolchain
+
+TEST="test/cluster/object_store/test_backup.py::test_restore_tablets[gs-topology1]"
+LOGDIR=~/test-repro-logs
+RELEASE_ATTEMPTS=10
+DEBUG_ATTEMPTS=50
+DEV_ATTEMPTS=50
+REPS=100
+
+source "$VENV/bin/activate"
+cd "$SCYLLA_DIR"
+mkdir -p "$LOGDIR"
+
+run_phase() {
+    local MODE=$1 ATTEMPTS=$2
+    echo "=== Phase: $MODE — $ATTEMPTS attempts × $REPS reps ===" | tee -a "$LOGDIR/summary.log"
+    for i in $(seq 1 "$ATTEMPTS"); do
+        echo "[$MODE] Attempt $i/$ATTEMPTS — $(date)" | tee -a "$LOGDIR/summary.log"
+        if ./test.py --no-gather-metrics --mode "$MODE" --repeat "$REPS" --max-failures 1 "$TEST" \
+              >> "$LOGDIR/${MODE}-attempt-${i}.log" 2>&1; then
+            echo "[$MODE] Attempt $i PASSED" | tee -a "$LOGDIR/summary.log"
+        else
+            echo "[$MODE] Attempt $i FAILED — archiving logs" | tee -a "$LOGDIR/summary.log"
+            cp -r testlog "$LOGDIR/${MODE}-failure-${i}-testlog" 2>/dev/null || true
+            echo "REPRODUCTION FOUND in $MODE attempt $i" | tee -a "$LOGDIR/summary.log"
+            exit 0
+        fi
+    done
+    echo "[$MODE] No failure in $ATTEMPTS attempts" | tee -a "$LOGDIR/summary.log"
+}
+
+run_phase release "$RELEASE_ATTEMPTS"
+run_phase debug   "$DEBUG_ATTEMPTS"
+run_phase dev     "$DEV_ATTEMPTS"
+
+echo "=== All phases complete — no reproduction ===" | tee -a "$LOGDIR/summary.log"
+```
+
+**Launch it in the background (survives SSH disconnects):**
+```bash
+chmod +x ~/repro-loop.sh
+nohup ~/repro-loop.sh > ~/repro-loop-stdout.log 2>&1 &
 echo "PID: $!"
 ```
 
-Monitor:
+**Monitor progress from local machine:**
 ```bash
-tail -f ~/test-run-1000.log
-# or from the local machine:
-ssh -i ~/.ssh/ernest.pem ubuntu@<IP> 'tail -30 ~/test-run-1000.log'
+ssh arm-scylla 'tail -20 ~/test-repro-logs/summary.log'
+```
+
+### Local auto-shutdown watcher
+
+Run this on the **local machine** to monitor the ARM instance and stop it once the repro
+loop finishes (so it doesn't sit running and billing after the test):
+
+```bash
+#!/bin/bash
+# /tmp/watch-and-shutdown.sh
+SCRATCH=~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/scylladb-repro-results.md
+INSTANCE_ID=i-05ccc6ae22cf5bc94
+REGION=us-east-1
+AWS_PROFILE=797456418907-DevOpsAccessRole
+
+echo "Watcher started $(date)" > /tmp/watch-and-shutdown.log
+
+while ssh arm-scylla 'pgrep -f repro-loop.sh > /dev/null' 2>/dev/null; do
+    echo "$(date): repro loop still running" >> /tmp/watch-and-shutdown.log
+    sleep 60
+done
+
+echo "$(date): repro loop finished — collecting results" >> /tmp/watch-and-shutdown.log
+mkdir -p "$(dirname "$SCRATCH")"
+ssh arm-scylla 'cat ~/test-repro-logs/summary.log' > "$SCRATCH"
+
+echo "$(date): stopping instance $INSTANCE_ID" >> /tmp/watch-and-shutdown.log
+aws --profile "$AWS_PROFILE" ec2 stop-instances --instance-ids "$INSTANCE_ID" --region "$REGION"
+echo "$(date): done" >> /tmp/watch-and-shutdown.log
+```
+
+```bash
+chmod +x /tmp/watch-and-shutdown.sh
+nohup /tmp/watch-and-shutdown.sh > /tmp/watch-and-shutdown.log 2>&1 &
+echo "Watcher PID: $!"
+```
+
+⚠️ **AWS credentials expire every ~6 hours.** If the watcher runs longer than that, the
+`ec2 stop-instances` call will fail. Check `/tmp/watch-and-shutdown.log` and stop manually
+if needed:
+```bash
+aws --profile 797456418907-DevOpsAccessRole ec2 stop-instances \
+  --instance-ids i-05ccc6ae22cf5bc94 --region us-east-1
 ```
 
 ---
