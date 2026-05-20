@@ -125,7 +125,7 @@ LD_LIBRARY_PATH=/usr/local/lib/scylla-toolchain ./test.py \
 ```
 
 Full setup details (Ubuntu-specific patches, library extraction, slapd config):
-`~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/arm-instance-setup.md`
+`scylla/arm-instance-setup.md` (in this instructions repo)
 
 **AWS credentials** expire periodically. Check expiry:
 ```bash
