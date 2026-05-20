@@ -127,11 +127,12 @@ LD_LIBRARY_PATH=/usr/local/lib/scylla-toolchain ./test.py \
 Full setup details (Ubuntu-specific patches, library extraction, slapd config):
 `scylla/arm-instance-setup.md` (in this instructions repo)
 
-**AWS credentials** expire every ~6 hours. Refresh with:
+**AWS credentials** expire every ~6 hours. Ask the user for their Google Authenticator
+code, then immediately run:
 ```bash
-~/Development/scylladb/venv/bin/gimme-aws-creds
-# select [0] GOOGLE TOTP, enter code, select DevOpsAccessRole
+refresh-aws-creds <6-digit-totp-code>
 ```
+Everything else is automated (password from `~/.config/gimme-aws-creds-pass`, factor=0, role=0).
 
 ### Common notes
 - Source files and targets are tracked in `configure.py` (and `CMakeLists.txt`) — update when adding/removing files

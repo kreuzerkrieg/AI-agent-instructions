@@ -84,8 +84,8 @@ aws --profile 797456418907-DevOpsAccessRole ec2 describe-instances \
 
 ## 4. AWS Credentials — How to Refresh
 
-Credentials are **temporary STS tokens** that expire every ~6 hours. The tool used is
-**`gimme-aws-creds`** (Okta → SAML → STS), installed in the scylladb venv.
+Credentials are **temporary STS tokens** that expire every ~6 hours. The tool is
+**`gimme-aws-creds`** (Okta TOTP → STS), installed in the scylladb venv.
 
 **Check current expiry:**
 ```bash
@@ -93,18 +93,23 @@ grep x_security_token_expires ~/.aws/credentials
 # look at the entry below [797456418907-DevOpsAccessRole]
 ```
 
-### Refresh credentials (standard workflow)
+### Automated refresh (standard workflow for the AI agent)
+
+A wrapper script handles everything automatically. **The only input needed from the user
+is the 6-digit Google Authenticator code.**
+
+**Step 1** — Agent asks the user for the TOTP code via `ask_questions`.
+
+**Step 2** — Agent runs immediately (the code expires in ~30s so don't delay):
 ```bash
-~/Development/scylladb/venv/bin/gimme-aws-creds
+refresh-aws-creds <6-digit-code>
 ```
 
-Interactive prompts — what to expect:
-1. **Password** — pulled from keyring automatically after the first run (no typing needed)
-2. **MFA** — Okta push not available; select `[0] token:software:totp( GOOGLE )` and enter the 6-digit code from Google Authenticator
-3. **Role selection** — select `[0] arn:aws:iam::797456418907:role/DevOpsAccessRole`
-
-gimme-aws-creds writes the credentials directly to `~/.aws/credentials` under
-`797456418907-DevOpsAccessRole`. No manual editing needed.
+The script (`~/.local/bin/refresh-aws-creds`) handles all other prompts:
+- Password → read from `~/.config/gimme-aws-creds-pass` (chmod 600)
+- "Save password in keyring?" → `y`
+- Factor selection → `0` (Google TOTP, always)
+- Role selection → `0` (DevOpsAccessRole, always)
 
 **Config file:** `~/.okta_aws_login_config`
 - Okta org: `https://scylladb.okta.com`
@@ -115,6 +120,11 @@ gimme-aws-creds writes the credentials directly to `~/.aws/credentials` under
 ```bash
 aws --profile 797456418907-DevOpsAccessRole sts get-caller-identity
 ```
+
+### Dependencies
+- `gimme-aws-creds` — in `~/Development/scylladb/venv/bin/`
+- `pexpect` — installed in system venv (`pip install pexpect`)
+- `~/.config/gimme-aws-creds-pass` — Okta password, chmod 600 (local only, not in git)
 
 ---
 
