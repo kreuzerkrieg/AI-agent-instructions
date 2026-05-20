@@ -13,7 +13,7 @@ import sys
 import os
 import pexpect
 
-GIMME = "/home/ernest.zaslavsky/Development/scylladb/venv/bin/gimme-aws-creds"
+GIMME = os.path.expanduser("~/Development/scylladb/venv/bin/gimme-aws-creds")
 PASS_FILE = os.path.expanduser("~/.config/gimme-aws-creds-pass")
 TIMEOUT = 30
 

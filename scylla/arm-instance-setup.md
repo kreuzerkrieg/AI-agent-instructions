@@ -49,7 +49,7 @@ export AWS_PROFILE=797456418907-DevOpsAccessRole
 Verify credentials work:
 ```bash
 aws --profile 797456418907-DevOpsAccessRole sts get-caller-identity
-# Expected: {"Account": "797456418907", "Arn": "...assumed-role/DevOpsAccessRole/ernest.zaslavsky@scylladb.com", ...}
+# Expected: {"Account": "797456418907", "Arn": "...assumed-role/DevOpsAccessRole/<your-email>@scylladb.com", ...}
 ```
 
 ### Start the instance
@@ -113,7 +113,7 @@ The script (`~/.local/bin/refresh-aws-creds`) handles all other prompts:
 
 **Config file:** `~/.okta_aws_login_config`
 - Okta org: `https://scylladb.okta.com`
-- Username: `ernest.zaslavsky@scylladb.com`
+- Username: `<your-email>@scylladb.com`
 - `remember_device = True`, `aws_default_duration = 21600` (6 hours)
 
 **Verify credentials are valid:**
@@ -163,7 +163,7 @@ gimme_creds_server = appurl
 aws_appname =
 write_aws_creds = True
 cred_profile = acc-role
-okta_username = ernest.zaslavsky@scylladb.com
+okta_username = <your-email>@scylladb.com
 app_url = https://scylladb.okta.com/home/amazon_aws/0oa2uxps59d96E5Cj5d7/272
 resolve_aws_alias = False
 include_path = False
