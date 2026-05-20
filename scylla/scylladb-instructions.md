@@ -1098,6 +1098,119 @@ Jenkins test report → error signature → artifacts (logs) → server crash an
     → Jira issue creation with full evidence
 ```
 
+## Jenkins BYO Job — Triggering Custom Builds and Tests
+
+The **`byo_build_tests_dtest`** job ("Bring Your Own") at
+`https://jenkins.scylladb.com/job/scylla-master/job/byo/job/byo_build_tests_dtest/`
+is a fully configurable CI job that builds Scylla from any branch and runs any combination of
+unit tests, cluster/Python tests (`test/cluster/`, `test/cqlpy/`, etc.), and dtests on real
+Fedora CI nodes — including **aarch64 Graviton** workers. This is the right tool for:
+- Reproducing a flaky test with many repetitions
+- Running tests on aarch64 (native Fedora, no Ubuntu workarounds)
+- Running a single specific test in debug/dev mode
+
+### Authentication
+
+Jenkins credentials are stored in `~/.netrc`:
+```
+machine jenkins.scylladb.com
+  login ernest.zaslavsky@scylladb.com
+  password <JENKINS_API_TOKEN>
+```
+
+All API calls use `--user "ernest.zaslavsky@scylladb.com:<token>"` (Basic Auth). The token
+is a Jenkins API token, NOT an SSO password.
+
+### Triggering a Build via API
+
+Jenkins requires a **CSRF crumb** for every POST. Always fetch it fresh immediately before triggering:
+
+```bash
+CRUMB=$(curl -s --user "ernest.zaslavsky@scylladb.com:<JENKINS_API_TOKEN>" \
+  "https://jenkins.scylladb.com/crumbIssuer/api/json" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['crumb'])")
+
+curl -v --user "ernest.zaslavsky@scylladb.com:<JENKINS_API_TOKEN>" \
+  -H "Jenkins-Crumb: $CRUMB" \
+  -X POST \
+  "https://jenkins.scylladb.com/job/scylla-master/job/byo/job/byo_build_tests_dtest/buildWithParameters" \
+  --data-urlencode "BUILD_ARM=true" \
+  --data-urlencode "BUILD_MODE=debug" \
+  --data-urlencode "RUN_UNIT_TESTS=true" \
+  --data-urlencode "INCLUDE_TESTS=test/cluster/object_store/test_backup.py::test_restore_tablets[gs-topology1]" \
+  --data-urlencode "ARM_NUM_OF_UNITTEST_REPEATS=1000" \
+  --data-urlencode "RUN_DTEST=false" \
+  --data-urlencode "INCLUDE_DTESTS=" \
+  --data-urlencode "DEBUG_MAIL=true" \
+  --data-urlencode "DEFAULT_BRANCH=master"
+```
+
+A successful trigger returns **HTTP 201 Created** with a `Location: .../queue/item/<N>/` header.
+Wait a few seconds and resolve the queue item to get the actual build number:
+
+```bash
+curl -s --user "ernest.zaslavsky@scylladb.com:<JENKINS_API_TOKEN>" \
+  "https://jenkins.scylladb.com/queue/item/<N>/api/json" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); exe=d.get('executable'); print(exe['url'] if exe else 'still queued')"
+```
+
+### Key Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `BUILD_ARM` | bool | `false` | Build and run tests on **aarch64 Fedora** CI nodes |
+| `BUILD_MODE` | choice | `release` | `release` / `debug` / `dev` / `ALL` |
+| `RUN_UNIT_TESTS` | bool | `true` | Run `test.py` tests (covers ALL test suites: boost, cluster, cqlpy, etc.) |
+| `INCLUDE_TESTS` | string | *(all)* | Specific test(s) to run via `test.py` — e.g., `test/cluster/object_store/test_backup.py::test_restore_tablets[gs-topology1]`. Leave empty for all. |
+| `ARM_NUM_OF_UNITTEST_REPEATS` | string | `1` | Number of repetitions per test on ARM. Use `1000` for flakiness investigations. |
+| `X86_NUM_OF_UNITTEST_REPEATS` | string | `1` | Same but for x86_64. |
+| `UNIT_TESTS_MARKERS` | string | `"not non_gating"` | pytest `-m` expression to filter tests. Default skips non-gating. |
+| `RUN_DTEST` | bool | `true` | Set `false` to skip Cassandra-style dtests entirely. |
+| `INCLUDE_DTESTS` | string | `-m 'not skip and next_gating'` | dtest filter (irrelevant when `RUN_DTEST=false`). |
+| `DEFAULT_BRANCH` | choice | `master` | Default branch for all repos. |
+| `SCYLLA_FORK_REPO` + `SCYLLA_FORK_BRANCH` | string | *(empty)* | Use a fork/branch instead of main scylla.git. |
+| `DEBUG_MAIL` | bool | `true` | Send results only to the triggering user (not `jenkins-notifications@`). Keep `true`. |
+| `GATHER_METRICS` | bool | `true` | Collect test metrics. |
+| `CREATE_*` | bool | `false` | Package/image creation flags — keep all `false` for test-only runs. |
+
+### Checking Build Status / Parameters
+
+```bash
+# Check if a build is still running and see its parameters
+curl -s --user "ernest.zaslavsky@scylladb.com:<JENKINS_API_TOKEN>" \
+  "https://jenkins.scylladb.com/job/scylla-master/job/byo/job/byo_build_tests_dtest/<BUILD>/api/json" \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print('Building:', d.get('building'), '  Result:', d.get('result'))
+for a in d.get('actions', []):
+    for p in (a.get('parameters') or []):
+        if p.get('value') not in (None, '', False, 1, True):
+            print(f'  {p[\"name\"]} = {p[\"value\"]}')
+"
+```
+
+### Stopping a Build
+
+```bash
+CRUMB=$(curl -s --user "ernest.zaslavsky@scylladb.com:<JENKINS_API_TOKEN>" \
+  "https://jenkins.scylladb.com/crumbIssuer/api/json" | python3 -c "import sys,json; print(json.load(sys.stdin)['crumb'])")
+
+curl -s --user "ernest.zaslavsky@scylladb.com:<JENKINS_API_TOKEN>" \
+  -H "Jenkins-Crumb: $CRUMB" \
+  -X POST \
+  "https://jenkins.scylladb.com/job/scylla-master/job/byo/job/byo_build_tests_dtest/<BUILD>/stop"
+```
+
+### Important Caveats
+
+- **Parameters are defined in pipeline code, not the GUI.** The GUI shows stale values from the last run. Always submit parameters explicitly via API; never rely on GUI defaults reflecting the current pipeline.
+- **Concurrent builds are allowed** (`concurrentBuild: true`) — multiple BYO builds can run simultaneously.
+- **`INCLUDE_TESTS` works for all `test.py` test types** — boost C++ tests (`test/boost/foo.cc::test_case`), cluster Python tests (`test/cluster/foo.py::test_case`), cqlpy, alternator, etc. The format mirrors `./test.py` invocation.
+- **aarch64 CI nodes are native Fedora** — no Ubuntu workarounds needed, unlike the personal ARM EC2 instance.
+
+---
+
 ## `$debunk` — PR Bot Comment Triage Workflow
 
 ### Trigger
