@@ -878,6 +878,60 @@ echo "https://argus.scylladb.com/tests/scylla-cluster-tests/$(cat ~/sct-results/
 
 ---
 
+## SSH Access to SCT Nodes
+
+### Key
+All SCT infrastructure (runners, DB nodes, loaders, monitors) uses the same SSH key:
+```
+~/.ssh/scylla_test_id_ed25519
+```
+
+### Access Pattern
+
+```
+Local machine ──SSH──► SCT runner ──SSH──► DB / Loader / Monitor nodes
+```
+
+1. **SSH to SCT runner** (the machine orchestrating the test):
+   ```bash
+   ssh -i ~/.ssh/scylla_test_id_ed25519 ubuntu@<runner-ip>
+   ```
+   The runner IP comes from Argus (test run page) or from the user.
+
+2. **From runner to cluster nodes** (DB, loader, monitor):
+   ```bash
+   # The same key is deployed on the runner for intra-cluster access
+   ssh -i ~/.ssh/scylla_test_id_ed25519 <user>@<node-ip>
+   ```
+   - DB nodes: user is typically `ubuntu` or `centos` (depends on AMI)
+   - Node IPs are in `~/sct-results/latest/` or from the SCT log's cluster setup output
+
+3. **Finding node IPs on the runner**:
+   ```bash
+   cat ~/sct-results/latest/test_id              # Get test UUID
+   grep -i "private_ip_address" ~/sct-results/latest/*.log | head -20
+   # Or from the SCT framework's cluster info:
+   grep "db_cluster\|loader" ~/sct-results/latest/sct-*.log | grep -oP '\d+\.\d+\.\d+\.\d+' | sort -u
+   ```
+
+### Prometheus Access from Runner
+
+The monitoring node runs Prometheus. Once SSHed to the runner, query metrics directly:
+```bash
+# Find monitor IP
+MONITOR_IP=$(grep "monitor" ~/sct-results/latest/sct-*.log | grep -oP '\d+\.\d+\.\d+\.\d+' | head -1)
+
+# Query a metric
+curl -s "http://${MONITOR_IP}:9090/api/v1/query?query=scylla_s3_downloads_blocked_on_memory" | python3 -m json.tool
+```
+
+### Notes
+- The runner is an ephemeral EC2 instance — it only exists while the test is running (or shortly after if teardown hasn't completed).
+- If SSH fails with "connection refused", the instance may still be in cloud-init or may have been terminated.
+- The key `scylla_test_id_ed25519` is SCT-specific and different from personal AWS keys.
+
+---
+
 ## Analysis Report Locations
 
 All generated analysis files go to the CLion scratches directory:
