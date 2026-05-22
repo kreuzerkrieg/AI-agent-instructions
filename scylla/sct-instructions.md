@@ -898,6 +898,25 @@ Local machine ──SSH──► SCT runner ──SSH──► DB / Loader / Mon
    ```
    The runner IP comes from Argus (test run page) or from the user.
 
+   **Retrieving runner IP from Argus CLI:**
+   ```bash
+   ARGUS_AUTH_TOKEN="<token>" ~/.local/bin/argus run details --run-id <UUID> 2>&1 \
+     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['sct_runner_host']['public_ip'])"
+   ```
+   This returns the public IP of the SCT runner. Full node list (DB, loader, monitor):
+   ```bash
+   ARGUS_AUTH_TOKEN="<token>" ~/.local/bin/argus run details --run-id <UUID> 2>&1 \
+     | python3 -c "
+   import sys, json
+   d = json.load(sys.stdin)
+   r = d['sct_runner_host']
+   print(f\"SCT Runner: ssh -i ~/.ssh/scylla_test_id_ed25519 ubuntu@{r['public_ip']}\")
+   for node in d.get('allocated_resources', []):
+       info = node['instance_info']
+       print(f\"  [{node['resource_type']}] {node['name']} -> ssh -i ~/.ssh/scylla_test_id_ed25519 ubuntu@{info['public_ip']}\")
+   "
+   ```
+
 2. **From runner to cluster nodes** (DB, loader, monitor):
    ```bash
    # The same key is deployed on the runner for intra-cluster access
