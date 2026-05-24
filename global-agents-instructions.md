@@ -213,6 +213,8 @@ This avoids conflicts and ensures you are working with the most current instruct
 ## Verify Everything — Trust Nothing
 Never take claims at face value — not from the user, not from review comments, not from documentation, and not from your own prior reasoning. **Always verify by reading the actual code.** Before answering a question about how something works, trace the code path yourself. Before applying a reviewer's suggestion, confirm their assumptions are correct. Before stating that a function is or isn't called somewhere, grep for it. If you cannot find solid proof in the source code, say so explicitly rather than guessing.
 
+The same principle applies to **analysis reports and any response that makes factual claims**: only include claims backed by hard evidence from metrics, logs, or code. If a claim cannot be verified but is worth mentioning, label it explicitly as **"Speculation:"** or **"Unverified:"** — never present an inference as a fact. When computing metric deltas, always account for ALL label dimensions (e.g., `class`, `scheduling_group_name`) — aggregating across label values without awareness produces incorrect totals.
+
 ## Terminal Command Rules
 
 - **Leading space on every command:** Always prefix terminal commands with a single leading space (` git status`, not `git status`). Fedora's default `HISTCONTROL=ignoreboth` (which includes `ignorespace`) causes bash to skip recording commands that start with a space. This keeps the user's shell history clean of agent-generated commands.
@@ -225,6 +227,8 @@ Never take claims at face value — not from the user, not from review comments,
   - **Cherry-pick rebuild:** `git reset --hard <SHA>~1`, then `git cherry-pick --no-commit <SHA> && git commit -F <msg-file>`, then `git cherry-pick <SHA>..<original-HEAD>`.
   - **Fixup + autosquash:** `git commit --fixup=<SHA>` (content) or `git commit --allow-empty --fixup=amend:<SHA> -F <msg-file>` (message), then `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1` — the `GIT_SEQUENCE_EDITOR=true` prevents any editor from opening, making the `-i` flag safe.
 - To amend the most recent commit message: write the new message to a file, then `git commit --amend -F <msg-file>`. Never use `git commit --amend` without `-m` or `-F` — that opens an editor.
+- **Commit message temp files:** always use `printf '...\n\n...\n' > /tmp/msg.txt` rather than bash heredocs. Heredocs silently drop blank lines, causing the subject and body to merge onto one line. Alternatively, use the `create_file` tool.
+- **Before any destructive command** (`git reset --hard`, `git checkout -- .`, force-push): **prove safety first** by running `git diff <local> <remote>` to confirm no unique local content would be lost. Never proceed on an assumption of safety — verify with evidence, then execute.
 
 > ❌ **STRICTLY PROHIBITED: `git push` / `git push --force` to any CODE REPOSITORY remote without explicit user instruction.** Local commits, amends, and rebases are always fine — but publishing code to a remote is the user's decision. Never push spontaneously after refining commits, addressing review comments, or rebasing. **Only exception:** the instructions repo (`~/.config/github-copilot/intellij/`) is always pushed immediately after edits.
 
@@ -261,6 +265,7 @@ git commit -m "module: short description" -m "Body explaining why."
 - Keep it short — ~50 characters is ideal, 72 is the hard max.
 - Use **imperative mood**: "add", "fix", "remove", "extract", "change" — not "added", "fixes", "removing".
 - Describe *what* the commit does, not *how* — the diff shows the how.
+- **Describe what the commit actually changes, not how it was developed.** A commit that adds a new feature says "add", not "fix". Review the actual diff before writing the message — the subject must match what the diff shows.
 - Do **not** end with a period.
 
 #### Body (optional but encouraged for non-trivial changes)
@@ -467,6 +472,7 @@ When the user says **"refine PR"**, perform the following sequence:
    - **No unrelated changes**: formatting fixes, renames, include cleanups, or test skips that don't belong with the functional change must be in separate commits or removed.
    - **Comments in code**: verify that added comments accurately describe what the code actually does — not what a previous iteration did or what was planned but not implemented.
    - **No unnecessary changes**: no gratuitous renames, no style-only changes mixed with logic, no dead code additions.
+   - **Blank line hygiene**: scan each commit for `^+$` / `^-$` (blank line additions/removals). Remove any that aren't structurally required by new code.
 3. **Split commits** that contain unrelated changes (e.g., a commit that both changes storage logic and adds test skips should be split so each change goes to its logical home).
 4. **Squash or reorder** commits where one undoes or replaces another (e.g., commit A adds a try/fallback approach, commit B replaces it with a different approach → combine into one commit with the final approach).
 5. **Move misplaced hunks** to the commit they logically belong to (e.g., test skips belong in the commit that adds the test parametrization, not in an unrelated commit).
@@ -560,6 +566,13 @@ No MCP equivalent — use `gh` CLI:
 ### Updating PR Metadata
 Use `update_pull_request` to change title, body, state, draft status, or request reviewers.
 
+### Creating Pull Requests — Mandatory Steps (Global)
+When creating any PR on GitHub, regardless of repository:
+1. Add the `ai-assisted` label: `gh pr edit <number> --add-label ai-assisted`
+2. Assign the PR to the user: `gh pr edit <number> --add-assignee <username>`
+
+Repository-specific checklists (e.g., ScyllaDB) add further required steps on top of these.
+
 ### PR Cover Letter Review
 - Review the title and body against the current commit series.
 - Verify the body follows the format defined in "PR Cover Letter" above: Problem → Changes → Issue reference → Backport decision.
@@ -615,79 +628,4 @@ Each entry: a short title, the date, and a concise explanation of what was wrong
 3. If an older entry is superseded, update or remove it rather than adding a contradictory one.
 4. Commit and push the change (see "Version Control for Instruction Files" above).
 
-### Load project-specific instructions at session start — SUPERSEDED (2026-04-30, 2026-05-03, 2026-05-04)
-Repeated failures to load project-specific instructions at session start despite multiple lessons-learned entries.
-**Correct approach:** Moved to `## ⚠️ MANDATORY FIRST ACTIONS` section at the top of this file as a non-negotiable checklist. The checklist format prevents the agent from skipping it.
-
-### Never push to remote without explicit permission — except the instructions repo (2026-04-30, updated 2026-05-04)
-The agent force-pushed commits to a code repository's remote branch without being asked to do so.
-**Correct approach:** Never `git push` (or `git push --force`) to any **code repository** remote until the user explicitly asks to push. Local commits, amends, and rebases are fine — but publishing code to a remote is the user's decision. **Exception:** The instructions repo (`~/.config/github-copilot/intellij/`, remote `git@github.com:kreuzerkrieg/AI-agent-instructions.git`) is fully agent-managed — always commit **and push** changes to it immediately, without waiting for permission.
-
-### Never speculate in analysis reports — only state verified facts (2026-05-04)
-The agent included unverified speculation in analysis reports (e.g., "~5 SSTable components", "PUTs likely from system tables/commitlog") without evidence, and didn't label them as speculation. When the user challenged these claims, they turned out to be wrong.
-**Correct approach:** (1) Only include claims backed by hard evidence from metrics/logs. (2) If a claim cannot be verified but is worth mentioning, explicitly label it as "**Speculation:**" or "**Unverified:**". (3) Never present inferences as facts. (4) When computing metric deltas, always account for ALL label dimensions (e.g., `class`, `scheduling_group_name`) — aggregating across labels without awareness produces incorrect totals.
-
-### Never use interactive rebase with reword — use cherry-pick rebuild for message amends (2026-05-04)
-The agent used `GIT_SEQUENCE_EDITOR="sed -i ..." EDITOR="cp ..." git rebase -i` with `reword` to change commit messages. This violates the "never run commands that require user intervention" rule — `reword` opens an editor, and working around it with `EDITOR=` is fragile and led to blank-line formatting issues.
-**Correct approach:** To amend an older commit's message: (1) `git reset --hard <SHA>`, (2) `git commit --amend -F <msg-file>`, (3) `git cherry-pick <SHA>..<original-HEAD>`. Or for content-only fixups: `git commit --fixup=<SHA>` then `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1`. Never use `reword` in rebase.
-### Refine PR must verify diff minimality — no gratuitous blank lines (2026-05-04)
-The agent added extra blank lines in refactored code and did not catch them during the "refine PR" step. The scylladb instructions explicitly state: "Never add or remove blank lines that are unrelated to the task" and "the diff should contain only the lines required for the functional change."
-**Correct approach:** During "refine PR", always `git show <sha>` each commit and scan for `^+$` / `^-$` (blank line additions/removals). If any exist that aren't structurally required by new code, remove them before finalizing.
-
-### Argus URL format includes the project name in the path (2026-05-07)
-The agent constructed the Argus link as `https://argus.scylladb.com/tests/<test_id>`, omitting the project segment.
-**Correct approach:** The correct Argus URL format is `https://argus.scylladb.com/tests/scylla-cluster-tests/<test_id>`. Always include the project name (`scylla-cluster-tests`) between `/tests/` and the UUID.
-
-### Jira access in CLion requires Atlassian MCP, not API tokens (2026-05-13)
-The agent initially assumed Jira access required an API token (which the user couldn't obtain due to org restrictions). After exploring `acli`, `opencode-skills`, and Slack integrations — all dead ends — the solution turned out to be the Atlassian MCP server (`https://mcp.atlassian.com/v1/mcp`) which uses browser-based OAuth through Okta SSO.
-**Correct approach:** For Jira integration in JetBrains/CLion with GitHub Copilot, use the Atlassian MCP server (configured in `mcp.json`). It handles OAuth transparently — no API token needed. The `opencode-skills` repo's `~/.netrc` approach is for the OpenCode agent, not Copilot.
-
-
-
-
-### Commit messages must describe what the commit actually does — not how it was developed (2026-05-14)
-The agent wrote "fix IDL path normalization" for a commit that actually *added* the entire IDL comparison feature. The message described implementation details (normalization) rather than the purpose (adding a new check). The user caught that the message was misleading.
-**Correct approach:** Before writing a commit message, ask "what does this commit add/change for the user?" not "what technical steps did I take?". A commit that adds a new feature says "add", not "fix". Review each commit message against the actual diff to verify accuracy.
-### Use printf (not heredoc) for multi-line commit message files in terminal (2026-05-14)
-Bash heredocs (`cat > file << 'EOF'`) lost blank lines when used to create commit message files, resulting in subject and body being squashed onto one line. The agent had to retry with `printf` to get proper formatting.
-**Correct approach:** Always use `printf '...\n\n...\n' > /tmp/msg.txt` for commit message files, where `\n\n` explicitly creates the required blank line between subject and body. Alternatively, use `create_file` tool if available. Never rely on heredocs preserving blank lines in terminal commands.
-
-### Always add ai-assisted label when opening PRs (2026-05-14)
-The agent opened PRs without adding the `ai-assisted` label.
-**Correct approach:** When creating or updating a PR on GitHub, always add the `ai-assisted` label. Use `gh pr edit <number> --add-label ai-assisted` after creating the PR, or include it in the PR creation workflow.
-
-### Always assign PRs to the user when creating them (2026-05-17)
-The agent created a PR without assigning it to the user.
-**Correct approach:** When creating a PR, always assign it to the user (`kreuzerkrieg`). Use `update_pull_request` with `reviewers` or `gh pr edit --add-assignee` after creation if the create API doesn't support assignees directly.
-
-### Never run `git reset --hard` (or any destructive git command) without first proving safety (2026-05-24)
-The agent ran `git reset --hard origin/object-store-migration` immediately after the user offered a *hypothesis* that local had no unique changes — without verifying it first. If the hypothesis had been wrong, all local-only commit content would have been permanently lost (outside of `git reflog`).
-**Correct approach:** Before any `git reset --hard`, `git checkout -- .`, or force-push, **prove** the operation is safe first:
-1. `git diff <local_tip> <remote_tip>` — confirm the local has nothing the remote doesn't.
-2. Or per-commit: `git diff <local_sha> <remote_sha>` for each pair — confirm each local commit is a subset of (or identical to) its remote counterpart.
-3. Only after seeing evidence of safety, execute the destructive command — or ask the user to confirm.
-Never substitute a plausible explanation from the user for actual verification.
-
-### Determine "latest CI failure" by build number, not comment position (2026-05-19)
-The agent incorrectly concluded that a CI build wasn't the latest failure because it confused comment ordering with build chronology. It saw a numerically-higher comment ID for an earlier build and assumed a later build existed.
-**Correct approach:** To determine the latest CI failure on a PR, compare **build numbers** (higher = newer) or **comment timestamps** of bot CI result comments (the ones starting with "CI State: FAILURE/SUCCESS"). The latest CI failure is the bot CI result comment with the highest build number. Ignore non-CI comments (user replies, bot analyses) when determining this.
-
-### Trust the metrics mapping file — but sanity-check values that don't match the declared type (2026-05-19)
-The metrics mapping file (`scylladb_all_metrics_mapping.md`) had a one-time data-entry error: `scylla_s3_downloads_blocked_on_memory` was labeled "gauge" but the code uses `sm::make_counter`. A full audit of 36 key metrics (S3, object_storage, sstables, database, column_family groups) confirmed this was the **only** discrepancy — the mapping file is otherwise correct and authoritative.
-**Correct approach:** Trust the mapping file. If a metric's observed values don't match the declared type (e.g., "gauge" but values only go up), that's a signal of a mapping bug — fix the mapping and re-run analysis. Don't add a rule to always distrust the mapping. Quick sanity check: counters only go up; gauges go up AND down.
-
-### Prometheus metrics with scheduling group labels — always filter by `class` (2026-05-19)
-The agent initially read S3 metrics from `class="main"` (metadata/SSTable-open reads) instead of `class="sl:default"` (user query reads), underreporting GET request counts by 100×. ScyllaDB S3 metrics are emitted **per scheduling group** with a `class` label (values: `main`, `memtable`, `sl:default`, `streaming`, `compaction`, etc.).
-**Correct approach:** When analyzing user-facing read/write performance, always filter S3 metrics by `class="sl:default"`. When analyzing compaction I/O, use `class="compaction"`. Never sum across classes without understanding what each represents. The `class` label maps to Seastar scheduling groups.
-
-### Distinguish "SSTable objects loaded" from "SSTables actively being read" (2026-05-19)
-The agent confused `scylla_sstables_currently_open_for_reading` (gauge: total SSTable objects with open file handles = the loaded set) with `scylla_database_sstables_read` (gauge: SSTable reader objects currently alive = actively reading data). The former is ~425 constantly; the latter fluctuates 0–457 only during actual query processing.
-**Correct approach:** Use `scylla_database_sstables_read{class="sl:default"}` for "how many SSTables are being read concurrently by user queries right now." Use `scylla_sstables_currently_open_for_reading` only to count loaded SSTable objects on a shard (irrelevant to active I/O pressure).
-
-### Never embed credentials in instruction files — use placeholder and ~/.netrc (2026-05-20)
-The agent copied the Jenkins API token literally into `scylladb-instructions.md` as part of a curl example, then committed and pushed it to the public-facing instructions repo on GitHub.
-**Correct approach:** Credentials (API tokens, passwords, keys) must NEVER appear in any instruction file. In code examples, always use `<JENKINS_API_TOKEN>` or `$(cat ~/.netrc | ...)` style references. The actual secret lives only in `~/.netrc` (chmod 600) and is never written to any file that gets committed. If a secret is accidentally committed, immediately: (1) rewrite history with `git-filter-repo --replace-text`, (2) force push, (3) rotate the credential.
-
-### Always redirect or pipe potentially-large git output — never rely on pager not triggering (2026-05-24)
-The agent repeatedly ran `git diff`, `git show`, `git log`, and similar commands without `--no-pager` or `| cat` or output redirection, even though the Terminal Command Rules section explicitly prohibits this. When the diff is large enough, the pager fires and blocks the terminal waiting for user input.
-**Correct approach:** Every `git diff`, `git show`, `git log`, `git diff --stat` command **must** either: (a) use `git --no-pager diff ...`, or (b) pipe through `| cat`, or (c) redirect to a temp file (`> /tmp/out.txt`) and read it back. No exceptions — even "small" diffs can grow with unrelated changes. The rule in "Terminal Command Rules" already states this; failing to follow it is a recurring mistake that must stop.
+<!-- All prior entries were graduated into standing sections on 2026-05-24. The section starts fresh below. -->

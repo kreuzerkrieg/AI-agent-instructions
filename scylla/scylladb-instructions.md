@@ -735,6 +735,7 @@ When creating a PR in `scylladb/scylladb`, always perform these steps:
 3. **Set `maintainer_can_modify: true`** — required for CI and maintainer collaboration.
 4. **Assign the PR** to the user who opened it (`--add-assignee <username>`).
 5. **Apply labels:**
+   - **`ai-assisted`** — always add when any part of the PR was AI-assisted
    - **`area/*`** — match the subsystem (e.g., `area/build`, `area/raft`, `area/cql`, `area/alternator`, `area/compaction`, `area/sstable`, `area/streaming`, etc.)
    - **`backport/none`** — if the PR cover letter states no backport is needed (new features, refactoring, build-only changes)
    - **`backport/<version>`** — if backporting is needed (bug fixes affecting released versions)
@@ -747,7 +748,7 @@ When creating a PR in `scylladb/scylladb`, always perform these steps:
 git push origin <branch-name>
 
 # Assign + label (using gh CLI — no MCP equivalent for labels)
-gh pr edit <number> --add-assignee <username> --add-label "area/build" --add-label "backport/none"
+gh pr edit <number> --add-assignee <username> --add-label "ai-assisted" --add-label "area/build" --add-label "backport/none"
 ```
 
 ### MCP tools for PR creation
@@ -1256,6 +1257,7 @@ After user reviews and approves:
 - **Never post PR comments without user approval** — always draft first
 - **Copy critical log snippets into Jira issues** — Jenkins artifacts expire in ~2 weeks
 - **Infrastructure failures** (disk full, OOM, worker crash) don't need Jira issues — just note in the reply
+- **Identifying the latest CI failure:** compare **build numbers** (higher = newer), not comment position. The latest failure is the bot CI result comment with the highest build number. Ignore non-CI comments (user replies, analysis)  when determining which is the latest.
 - **CI retrigger:** If the analyzed comment is the **latest** CI failure on the PR, ask the user if they want to retrigger CI. If yes, append `@scylladbbot trigger-ci` at the end of the PR reply comment.
 - **Duplicate detection:** Before starting analysis, check if a reply to the bot's CI result comment already exists from the user (`kreuzerkrieg`) or contains a verdict table (markdown table with "Verdict" column). If so, warn the user: "This comment was already debunked — see [link to existing reply]. Want me to redo it?" Do NOT proceed without confirmation.
 
