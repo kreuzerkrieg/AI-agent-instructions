@@ -515,6 +515,7 @@ The user triggers this phase by saying **`$plan-review`**.
 - Apply code changes only for approved items.
 - Post replies only for approved items.
 - Follow the rules below for amending commits, replying, and resolving threads.
+- **Before pushing:** remove the `conflicts` label if present: `gh pr edit <number> --remove-label conflicts`
 
 The user triggers this phase by saying **`$finalize-review`**.
 
