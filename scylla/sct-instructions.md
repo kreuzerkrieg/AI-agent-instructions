@@ -958,76 +958,141 @@ echo "https://argus.scylladb.com/tests/scylla-cluster-tests/$(cat ~/sct-results/
 
 ---
 
-## SSH Access to SCT Nodes
+## ⚠️ SSH Access to Running SCT Clusters — ALWAYS USE THIS
 
-### Key
-All SCT infrastructure (runners, DB nodes, loaders, monitors) uses the same SSH key:
-```
-~/.ssh/scylla_test_id_ed25519
-```
+> **READ THIS FIRST** when asked to check a running test, query node metrics, verify compaction,
+> check SSTable counts, or do ANYTHING that requires talking to cluster nodes.
+> Do NOT try `curl` directly to public IPs — they are not exposed. Do NOT use `~/.ssh/scylla-qa-ec2`.
+> Do NOT try the Python `argus.client` module (it has no CLI `main.py`).
 
-### Access Pattern
+### Quick-Reference Cheat Sheet
 
-```
-Local machine ──SSH──► SCT runner ──SSH──► DB / Loader / Monitor nodes
-```
-
-1. **SSH to SCT runner** (the machine orchestrating the test):
-   ```bash
-   ssh -i ~/.ssh/scylla_test_id_ed25519 ubuntu@<runner-ip>
-   ```
-   The runner IP comes from Argus (test run page) or from the user.
-
-   **Retrieving runner IP from Argus CLI:**
-   ```bash
-   ARGUS_AUTH_TOKEN="<token>" ~/.local/bin/argus run details --run-id <UUID> 2>&1 \
-     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['sct_runner_host']['public_ip'])"
-   ```
-   This returns the public IP of the SCT runner. Full node list (DB, loader, monitor):
-   ```bash
-   ARGUS_AUTH_TOKEN="<token>" ~/.local/bin/argus run details --run-id <UUID> 2>&1 \
-     | python3 -c "
-   import sys, json
-   d = json.load(sys.stdin)
-   r = d['sct_runner_host']
-   print(f\"SCT Runner: ssh -i ~/.ssh/scylla_test_id_ed25519 ubuntu@{r['public_ip']}\")
-   for node in d.get('allocated_resources', []):
-       info = node['instance_info']
-       print(f\"  [{node['resource_type']}] {node['name']} -> ssh -i ~/.ssh/scylla_test_id_ed25519 ubuntu@{info['public_ip']}\")
-   "
-   ```
-
-2. **From runner to cluster nodes** (DB, loader, monitor):
-   ```bash
-   # The same key is deployed on the runner for intra-cluster access
-   ssh -i ~/.ssh/scylla_test_id_ed25519 <user>@<node-ip>
-   ```
-   - DB nodes: user is typically `ubuntu` or `centos` (depends on AMI)
-   - Node IPs are in `~/sct-results/latest/` or from the SCT log's cluster setup output
-
-3. **Finding node IPs on the runner**:
-   ```bash
-   cat ~/sct-results/latest/test_id              # Get test UUID
-   grep -i "private_ip_address" ~/sct-results/latest/*.log | head -20
-   # Or from the SCT framework's cluster info:
-   grep "db_cluster\|loader" ~/sct-results/latest/sct-*.log | grep -oP '\d+\.\d+\.\d+\.\d+' | sort -u
-   ```
-
-### Prometheus Access from Runner
-
-The monitoring node runs Prometheus. Once SSHed to the runner, query metrics directly:
 ```bash
-# Find monitor IP
-MONITOR_IP=$(grep "monitor" ~/sct-results/latest/sct-*.log | grep -oP '\d+\.\d+\.\d+\.\d+' | head -1)
+# ─── Step 1: Get node IPs from Argus CLI ───
+~/.local/bin/argus run details --run-id <UUID> --no-cache 2>&1 | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+r = d['sct_runner_host']
+print(f'RUNNER: {r[\"public_ip\"]}')
+for node in d.get('allocated_resources', []):
+    info = node['instance_info']
+    print(f'  [{node[\"resource_type\"]}] {node[\"name\"]}: private={info[\"private_ip\"]} public={info[\"public_ip\"]}')
+"
 
-# Query a metric
-curl -s "http://${MONITOR_IP}:9090/api/v1/query?query=scylla_s3_downloads_blocked_on_memory" | python3 -m json.tool
+# ─── Step 2: SSH to runner (jump host) ───
+ssh -o StrictHostKeyChecking=no -i ~/.ssh/scylla_test_id_ed25519 ubuntu@<RUNNER_PUBLIC_IP>
+
+# ─── Step 3: From LOCAL machine, run command on a DB node via runner ───
+ssh -o StrictHostKeyChecking=no -i ~/.ssh/scylla_test_id_ed25519 ubuntu@<RUNNER_PUBLIC_IP> \
+  'ssh -o StrictHostKeyChecking=no -i ~/.ssh/scylla_test_id_ed25519 ubuntu@<NODE_PRIVATE_IP> "<COMMAND>"'
+
+# ─── Step 4: Loop over ALL DB nodes from local machine ───
+ssh -o StrictHostKeyChecking=no -i ~/.ssh/scylla_test_id_ed25519 ubuntu@<RUNNER_PUBLIC_IP> '
+for ip in <PRIVATE_IP_1> <PRIVATE_IP_2> ... <PRIVATE_IP_N>; do
+  echo "=== $ip ==="
+  ssh -o StrictHostKeyChecking=no -i ~/.ssh/scylla_test_id_ed25519 ubuntu@$ip "<COMMAND>"
+done
+'
 ```
 
-### Notes
-- The runner is an ephemeral EC2 instance — it only exists while the test is running (or shortly after if teardown hasn't completed).
-- If SSH fails with "connection refused", the instance may still be in cloud-init or may have been terminated.
-- The key `scylla_test_id_ed25519` is SCT-specific and different from personal AWS keys.
+### Critical Facts (memorize these)
+
+| Fact | Value |
+|------|-------|
+| **SSH key** | `~/.ssh/scylla_test_id_ed25519` (ONLY this key — nothing else works) |
+| **Argus CLI binary** | `~/.local/bin/argus` (standalone binary, NOT a Python module) |
+| **Runner user** | `ubuntu` |
+| **DB node user** | `ubuntu` (on AWS AMIs) |
+| **Access pattern** | Local → Runner (public IP) → Nodes (private IPs) |
+| **Nodes NOT directly reachable** | Public IPs of DB/loader/monitor are in a VPC — SSH from local machine times out |
+| **ScyllaDB REST API port** | `10000` (on localhost from within the node) |
+
+### Common ScyllaDB REST API Queries (run ON the node)
+
+```bash
+# Active compactions (shows MAJOR, COMPACTION, etc.)
+curl -s localhost:10000/compaction_manager/compactions
+
+# List keyspaces
+curl -s localhost:10000/storage_service/keyspaces
+
+# List tables in a keyspace (replace keyspace1)
+curl -s localhost:10000/column_family/name/keyspace1
+
+# SSTable count for a specific table
+curl -s localhost:10000/column_family/metrics/live_ss_table_count/<ks>:<table>
+
+# Disable auto-compaction
+curl -s -X DELETE localhost:10000/storage_service/auto_compaction/<keyspace>
+
+# Enable auto-compaction
+curl -s -X POST localhost:10000/storage_service/auto_compaction/<keyspace>
+
+# Trigger major compaction
+curl -s -X POST "localhost:10000/storage_service/compact?flush_memtables=true"
+```
+
+### Full Worked Example: Check Compaction on All Nodes
+
+```bash
+# 1. Get IPs
+RUNNER=$(~/.local/bin/argus run details --run-id <UUID> --no-cache 2>&1 \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['sct_runner_host']['public_ip'])")
+
+DB_IPS=$(~/.local/bin/argus run details --run-id <UUID> --no-cache 2>&1 \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+ips = [n['instance_info']['private_ip'] for n in d['allocated_resources'] if n['resource_type']=='db']
+print(' '.join(ips))
+")
+
+# 2. Query all nodes
+ssh -o StrictHostKeyChecking=no -i ~/.ssh/scylla_test_id_ed25519 ubuntu@$RUNNER "
+for ip in $DB_IPS; do
+  echo \"=== \$ip ===\"
+  ssh -o StrictHostKeyChecking=no -i ~/.ssh/scylla_test_id_ed25519 ubuntu@\$ip \
+    'curl -s localhost:10000/compaction_manager/compactions' 2>/dev/null \
+    | python3 -c \"
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    major = [c for c in data if c['task_type']=='MAJOR' and c['total']>0]
+    regular = [c for c in data if c['task_type']=='COMPACTION']
+    print(f'  Active MAJOR: {len(major)}, Regular: {len(regular)}')
+except: print('  (no data)')
+\"
+done
+"
+```
+
+### Prometheus Access (from runner)
+
+```bash
+# Find monitor private IP
+MONITOR_IP=$(~/.local/bin/argus run details --run-id <UUID> --no-cache 2>&1 \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for n in d['allocated_resources']:
+    if n['resource_type']=='monitor':
+        print(n['instance_info']['private_ip']); break
+")
+
+# Query Prometheus (run this ON the runner, or nested-SSH through runner)
+ssh -o StrictHostKeyChecking=no -i ~/.ssh/scylla_test_id_ed25519 ubuntu@$RUNNER \
+  "curl -s 'http://$MONITOR_IP:9090/api/v1/query?query=sum(scylla_compaction_manager_compactions)' | python3 -m json.tool"
+```
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Connection timed out` to public IP | DB/loader/monitor nodes are NOT directly reachable | SSH via runner as jump host |
+| `Permission denied (publickey)` | Wrong key | Use `~/.ssh/scylla_test_id_ed25519` |
+| `Connection refused` on runner | Test ended, runner terminated | Check Argus run status first |
+| `No module named argus.client.main` | Trying to use Python argus module | Use `~/.local/bin/argus` binary instead |
+| API returns 404 | API path differs between ScyllaDB versions | Try without `/storage_service/` prefix |
 
 ---
 
