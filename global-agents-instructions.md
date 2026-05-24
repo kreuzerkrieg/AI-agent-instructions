@@ -133,6 +133,7 @@ Also check **[cursor.directory](https://cursor.directory/)** — a community-cur
 
 ---
 
+
 ## `$cmd` — List All Commands
 
 When the user types **`$cmd`**, list all defined `$`-prefixed commands with a one-line description of each. Scan both global and project-specific instruction files for command definitions. Current commands:
