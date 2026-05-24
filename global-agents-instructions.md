@@ -226,6 +226,8 @@ Never take claims at face value — not from the user, not from review comments,
   - **Fixup + autosquash:** `git commit --fixup=<SHA>` (content) or `git commit --allow-empty --fixup=amend:<SHA> -F <msg-file>` (message), then `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1` — the `GIT_SEQUENCE_EDITOR=true` prevents any editor from opening, making the `-i` flag safe.
 - To amend the most recent commit message: write the new message to a file, then `git commit --amend -F <msg-file>`. Never use `git commit --amend` without `-m` or `-F` — that opens an editor.
 
+> ❌ **STRICTLY PROHIBITED: `git push` / `git push --force` to any CODE REPOSITORY remote without explicit user instruction.** Local commits, amends, and rebases are always fine — but publishing code to a remote is the user's decision. Never push spontaneously after refining commits, addressing review comments, or rebasing. **Only exception:** the instructions repo (`~/.config/github-copilot/intellij/`) is always pushed immediately after edits.
+
 ---
 
 ## Commit Organization
@@ -470,6 +472,7 @@ When the user says **"refine PR"**, perform the following sequence:
 5. **Move misplaced hunks** to the commit they logically belong to (e.g., test skips belong in the commit that adds the test parametrization, not in an unrelated commit).
 6. **Verify compilability**: mentally confirm that each commit in the final sequence compiles independently — removing any later commit should not break the build.
 7. **Final diff check**: `git diff <original_HEAD> HEAD --stat` should show only intentional differences (removed noise, fixed skips, etc.) — no accidental content loss.
+8. **Do NOT push** — never push the refined commits to remote. Wait for explicit user instruction to push.
 
 ---
 
@@ -515,7 +518,8 @@ The user triggers this phase by saying **`$plan-review`**.
 - Apply code changes only for approved items.
 - Post replies only for approved items.
 - Follow the rules below for amending commits, replying, and resolving threads.
-- **Before pushing:** remove the `conflicts` label if present: `gh pr edit <number> --remove-label conflicts`
+- **Before the user pushes:** remove the `conflicts` label if present: `gh pr edit <number> --remove-label conflicts`
+- ❌ **Do NOT push** — never run `git push` after addressing review comments. Wait for explicit user instruction to push.
 
 The user triggers this phase by saying **`$finalize-review`**.
 
@@ -526,6 +530,7 @@ The user triggers this phase by saying **`$finalize-review`**.
 2. **Make code changes** in the working tree.
 3. **Amend the correct commit** — use `git commit --fixup=<SHA>` + `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1`.
 4. **Separate unrelated fixes** — if a reviewer points out a pre-existing bug or a formatting issue, put the fix in its own commit (not bundled with functional changes).
+5. ❌ **Do NOT push** — after amending commits, do not run `git push`. Wait for explicit user instruction.
 
 ### Replying to Review Comments
 - For comments addressed in code: reply with a short confirmation — "Done.", "Addressed.", or "Done — <brief note>." (e.g., "Done — moved to a separate commit.").
@@ -561,7 +566,7 @@ Use `update_pull_request` to change title, body, state, draft status, or request
 - Update if the commit series has materially changed (new commits added/removed, major restructuring). Minor code-level tweaks don't require body updates.
 
 ### Push Summary Comment
-After pushing changes that address review comments, post a summary comment on the PR using `add_issue_comment` (pass PR number as `issue_number`). Format:
+After the **user** pushes changes that address review comments, post a summary comment on the PR using `add_issue_comment` (pass PR number as `issue_number`). ❌ **Do NOT push yourself** — wait for the user to explicitly ask you to push, then post this comment. Format:
 ```
 v next:
 

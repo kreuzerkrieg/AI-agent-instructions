@@ -728,7 +728,9 @@ curl -s -X POST https://staging.backtrace.scylladb.com/api/backtrace \
 ### Checklist
 When creating a PR in `scylladb/scylladb`, always perform these steps:
 
-1. **Push the branch** to the user's fork (e.g., `origin`).
+> ❌ **STRICTLY PROHIBITED: Never push to remote (`git push` / `git push --force`) unless the user explicitly asks you to push.** All local commits, amends, and rebases are fine, but publishing to a remote branch is the user's decision.
+
+1. **Push the branch** to the user's fork (e.g., `origin`) — **only when the user explicitly asks to create/push the PR**.
 2. **Create the PR as a draft** (`draft: true`) targeting `master` on `scylladb/scylladb`.
 3. **Set `maintainer_can_modify: true`** — required for CI and maintainer collaboration.
 4. **Assign the PR** to the user who opened it (`--add-assignee <username>`).
