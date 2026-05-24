@@ -702,58 +702,138 @@ scylla_hints_manager_size_of_hints_in_progress
 
 ## Argus CLI
 
-The `argus` CLI (`~/.local/bin/argus`, v0.1.2+) provides direct access to test run data from the terminal. It is the **preferred** method for querying Argus — use it instead of manual curl/API calls.
+The `argus` CLI (`~/.local/bin/argus`, v0.1.2+) provides direct access to test run data from the terminal. It is the **preferred** method for querying Argus — use it instead of manual curl/API calls or the web UI (which requires browser auth).
 
 ### Prerequisites
 - Binary: `~/.local/bin/argus` (installed from `scylladb/argus` releases, `cli/v*` tags)
 - Cloudflared: `~/.local/bin/cloudflared` (needed for CF Access auth to argus.scylladb.com)
 - Config: `~/.config/argus-cli/config.yaml` with `url: https://argus.scylladb.com` and `use_cloudflare: true`
+- Cache location: `~/.cache/argus-cli/cache/` (organized by resource type, plain JSON files)
 
 ### Authentication
 Argus production is behind Cloudflare Access. Auth is browser-based via Okta SSO:
 ```bash
-~/.local/bin/argus auth
+argus auth
 ```
 This opens a browser, authenticates via Okta, stores CF JWT + Argus session in system keychain. Re-run when session expires.
 
 The user's Argus PAT (Personal Access Token) can also be set via `ARGUS_AUTH_TOKEN` env var or stored with `argus auth headless` (requires CF service-token credentials too).
 
-### Key Commands
+### Global Flags (apply to all commands)
+| Flag | Purpose |
+|------|---------|
+| `--no-cache` | Bypass local response cache — always fetch fresh from API |
+| `--text` | Render output as human-readable table instead of JSON |
+| `--non-interactive` | Fail instead of opening browser for re-auth |
+| `--cache-ttl <duration>` | Override default cache TTL (e.g., `10m`, `1h`) |
+| `--no-color` | Disable colored output |
+| `-v` / `-vv` / `-vvv` | Increase log verbosity |
+
+### Run Commands (`argus run`)
+
+| Command | Purpose | Key Flags |
+|---------|---------|-----------|
+| `argus run get --run-id <UUID>` | Basic run info (status, version, backend, region, node count) | |
+| `argus run details --run-id <UUID>` | Full run object (packages, config, resources, events, nemesis, perf data) | `--type <plugin>` (auto-resolved) |
+| `argus run events --run-id <UUID>` | CRITICAL and ERROR SCT events | `--limit N`, `--before <time>`, `--after <time>` |
+| `argus run nemeses --run-id <UUID>` | Nemesis injection records (start/end times, status) | `--before <time>`, `--after <time>` |
+| `argus run activity --run-id <UUID>` | Activity/event log for the run | |
+| `argus run results --run-id <UUID>` | Performance/result tables | `--show-urls`, `--test-id <UUID>` |
+| `argus run pytest-results --run-id <UUID>` | Pytest results for the run | |
+| `argus run list --test-id <UUID>` | List recent runs for a test definition | `--limit N`, `--full`, `--before/--after <ts>` |
+| `argus run logs list --run-id <UUID>` | List available log archives | |
+| `argus run logs download "<name>" --run-id <UUID>` | Download & extract a log archive | `--dest <dir>` |
+
+**Time filters** (`--before`/`--after`) accept: Unix timestamps, RFC3339 datetimes, or `YYYY-MM-DD` date strings.
+
+### Comment Commands (`argus comment`)
+
+| Command | Purpose | Key Flags |
+|---------|---------|-----------|
+| `argus comment submit --run-id <UUID> --message "text"` | Post a comment on a run | `--mention <user-ids>`, `--test-id` (auto-resolved) |
+| `argus comment get --comment-id <UUID>` | Fetch a single comment | |
+| `argus comment update --comment-id <UUID> --message "text"` | Update existing comment | |
+| `argus comment delete --comment-id <UUID>` | Delete a comment | |
+
+Comments can also be piped via stdin: `echo "my comment" | argus comment submit --run-id <UUID>`
+
+### Issue Commands (`argus issue`)
+
+| Command | Purpose | Key Flags |
+|---------|---------|-----------|
+| `argus issue add --run-id <UUID> --issue-url <URL>` | Link a GitHub/Jira issue to a run | `--test-id` (auto-resolved) |
+| `argus issue list --run-id <UUID>` | List issues linked to a run | Also: `--release-id`, `--group-id`, `--test-id`, `--user-id`, `--view-id`, `--event-id` |
+
+### SSH Tunnel (`argus ssh`)
+
+| Command | Purpose | Key Flags |
+|---------|---------|-----------|
+| `argus ssh connect` | Start local SSH tunnel to Argus proxy | `--tunnel-id`, `--key-path`, `--ttl-seconds` |
+| `argus ssh keys` | Manage SSH keys for tunnel auth | |
+| `argus ssh tunnel` | Admin CRUD for proxy tunnel configs | |
+
+### Cache Management (`argus cache`)
 
 | Command | Purpose |
 |---------|---------|
-| `argus run get --run-id <UUID>` | Basic run details (status, duration, build) |
-| `argus run details --run-id <UUID>` | Full run details |
-| `argus run events --run-id <UUID>` | CRITICAL and ERROR events |
-| `argus run nemeses --run-id <UUID>` | Nemesis records (start/end times, status) |
-| `argus run logs list --run-id <UUID>` | List available log files |
-| `argus run logs download --run-id <UUID> --name <filename>` | Download a specific log |
-| `argus run results --run-id <UUID>` | Result tables |
-| `argus run comments --run-id <UUID>` | Comments on the run |
-| `argus run activity --run-id <UUID>` | Activity log |
-| `argus run list --test-id <test-UUID> --limit N` | List recent runs for a test |
-| `argus api version` | Verify API connectivity |
+| `argus cache info` | Show cache location and statistics |
+| `argus cache clear` | Delete all cached responses |
 
-### Output Format
-- Default: JSON. Add `--text` for human-readable table format.
-- Use `--no-cache` to bypass local response cache for fresh data.
-- Use `--non-interactive` to prevent auth prompts (fail instead).
+### Configuration (`argus config`)
+
+| Command | Purpose |
+|---------|---------|
+| `argus config list` | Show all settings |
+| `argus config get <key>` | Print value of a setting |
+| `argus config set <key> <val>` | Update and persist a setting |
+
+Recognised keys: `url`, `use_cloudflare`
+
+### `argus run details` Response Structure (SCT runs)
+
+Key fields in the JSON response:
+```
+build_id, start_time, id, status, heartbeat, end_time, build_job_url,
+product_version, test_name, test_method, stress_duration, scm_revision_id,
+branch_name, origin_url, started_by, config_files, packages[],
+scylla_version, yaml_test_duration, logs[], sct_runner_host, region_name,
+cloud_setup, allocated_resources[], events[], nemesis_data[],
+screenshots[], stress_cmd, histograms[], perf_op_rate_average,
+perf_op_rate_total, perf_avg_latency_99th, perf_avg_latency_mean,
+perf_total_errors, junit_reports[]
+```
 
 ### Typical Analysis Workflow
 ```bash
 # 1. Get run overview
-argus run get --run-id <UUID> --text
+argus run get --run-id <UUID> --no-cache --text
 
-# 2. Check for errors
-argus run events --run-id <UUID>
+# 2. Check for errors (only SCT runs have per-event records)
+argus run events --run-id <UUID> --no-cache
 
 # 3. Check nemesis history
-argus run nemeses --run-id <UUID>
+argus run nemeses --run-id <UUID> --no-cache
 
-# 4. List and download logs for deep analysis
-argus run logs list --run-id <UUID>
-argus run logs download --run-id <UUID> --name "sct-<suffix>.log.tar.zst" --output /tmp/
+# 4. Get full details (packages, allocated resources, perf data)
+argus run details --run-id <UUID> --no-cache
+
+# 5. List and download logs for deep analysis
+argus run logs list --run-id <UUID> --no-cache
+argus run logs download "sct-<run-id>.log.tar.zst" --run-id <UUID> --dest /tmp/logs
+
+# 6. Post a comment with findings
+argus comment submit --run-id <UUID> --message "Analysis: <findings>"
+
+# 7. Link a Jira issue
+argus issue add --run-id <UUID> --issue-url "https://scylladb.atlassian.net/browse/XXX-123"
 ```
+
+### Important Notes
+- **Events lag:** SCT reports events to Argus periodically. During early test phases (provisioning, setup), the events list may be empty even though the test is running.
+- **Heartbeat:** The `heartbeat` field in `run details` is a Unix timestamp of the last check-in. Use it to verify the test is alive.
+- **Stress events:** Stress command start/finish events only appear after the stress tool connects and begins reporting. Schema creation, API calls, and other setup steps are NOT reported as events.
+- **Compaction status:** There is NO Argus event for compaction enable/disable. To verify compaction state, check Grafana dashboards or node logs directly.
+- **`--no-cache` is essential** when checking a running test — cached data may be stale.
 
 ---
 
