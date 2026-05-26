@@ -218,7 +218,7 @@ The same principle applies to **analysis reports and any response that makes fac
 
 ## Terminal Command Rules
 
-- **Leading space on every command:** Always prefix terminal commands with a single leading space (` git status`, not `git status`). Fedora's default `HISTCONTROL=ignoreboth` (which includes `ignorespace`) causes bash to skip recording commands that start with a space. This keeps the user's shell history clean of agent-generated commands.
+- **Leading space on every command:** Always prefix terminal commands with a single leading space (` git status`, not `git status`). This relies on `HISTCONTROL` containing `ignorespace` (or `ignoreboth`), which causes bash to skip recording commands that start with a space, keeping the user's shell history clean of agent-generated commands. **Note:** this is NOT set by default on this machine — it was added manually to `~/.bashrc` (`export HISTCONTROL=ignoreboth`). If the leading-space trick stops working, verify the setting with `echo $HISTCONTROL`.
 
 > **⚠️ CRITICAL: You MUST NEVER run any terminal command that requires user intervention or waits for input.** This is an absolute, non-negotiable rule. Violations block the terminal and require the user to manually intervene. Offending commands include but are not limited to: `git rebase -i` (even with `--autosquash`), `git commit` without `-m`/`-F`, interactive editors (`vim`, `nano`, `less`), pagers, `read`, `select`, or any tool that prompts for input. The **only** exception is `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash` which is explicitly non-interactive because `GIT_SEQUENCE_EDITOR=true` suppresses the editor.
 
