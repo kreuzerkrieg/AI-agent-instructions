@@ -112,15 +112,11 @@
     },
     "io.github.tavily-ai/tavily-mcp": {
       "type": "stdio",
-      "command": "npx",
+      "command": "bash",
       "args": [
-        "-y",
-        "tavily-mcp@0.2.15"
+        "-c",
+        "source ~/.config/github-copilot/intellij/secrets/env.sh 2>/dev/null; exec npx -y tavily-mcp@0.2.15"
       ],
-      "env": {
-        "TAVILY_API_KEY": "",
-        "DEFAULT_PARAMETERS": ""
-      },
       "x-metadata": {
         "registry": {
           "api": {
