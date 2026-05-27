@@ -6,6 +6,27 @@
 
 ---
 
+> ## 🚨 STOP — READ THIS BEFORE DOING ANYTHING WITH ARGUS 🚨
+>
+> **When the user provides an Argus URL or test UUID, use the `argus` CLI — NOT web scraping, NOT curl, NOT the Python `argus.client` module.**
+>
+> ```bash
+> # Get run info:
+> ~/.local/bin/argus run get --run-id <UUID> --no-cache --text
+>
+> # Get performance results (latte, cassandra-stress, etc.):
+> ~/.local/bin/argus run results --run-id <UUID> --no-cache
+>
+> # Download logs:
+> ~/.local/bin/argus run logs list --run-id <UUID> --no-cache
+> ~/.local/bin/argus run logs download "<archive-name>" --run-id <UUID> --dest /tmp/logs
+> ```
+>
+> The web UI requires Okta SSO (inaccessible to agent). The CLI is already installed and authenticated.
+> Full docs: **Section "Argus CLI"** below (line ~703).
+
+---
+
 ## SCT Run Log Analysis
 
 ### Run Identification
