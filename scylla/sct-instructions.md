@@ -1488,3 +1488,12 @@ The agent searched `scylladb/scylla-cluster-tests` upstream for a latte workload
 ### The latte benchmark tool lives at github.com/scylladb/latte (2026-05-14)
 The agent couldn't find the latte tool repository when searching for "latte" under `org:scylladb` or broadly. GitHub search didn't surface it.
 **Correct approach:** The latte CQL/Alternator benchmark tool is at `https://github.com/scylladb/latte`. Key source files: `src/scripting/functions_common.rs` (built-in functions like `blob()`, `text()`, `hash()`, `uuid()`), `src/scripting/row_distribution.rs` (partition row distribution logic), `src/scripting/mod.rs` (script engine setup). Latte uses the Rune scripting language (`.rn` files).
+
+### Latte timeout ≠ zero ops — always parse LOG data lines (2026-05-28)
+When latte is killed by `--duration` timeout, the SUMMARY section is absent from the output. The agent assumed 0 completed operations because no summary was printed.
+**Correct approach:** Latte emits per-second LOG data lines during execution with columns: `Time[s] Cycles Errors Throughput Latency[ms]...` (plus percentile columns). The "Cycles" column is **cumulative** — the last data line's Cycles value = total ops completed. Always parse these lines to determine actual work done when SUMMARY is missing.
+
+### Latte request-timeout × retry-number determines total warmup wall time (2026-05-28)
+The agent reported that `count_read` warmup "stuck for 8 hours" without explaining why. The actual mechanism: `--request-timeout=4800` (80 min) × `--retry-number=5` retries = up to ~8h wall clock if every warmup attempt times out.
+**Correct approach:** When analyzing latte failures during warmup, compute `request_timeout × retry_number` to determine the maximum possible warmup duration. Report the mechanism (retries × timeout) rather than just the wall-clock time.
+
