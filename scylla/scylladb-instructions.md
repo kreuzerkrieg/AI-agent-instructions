@@ -651,7 +651,7 @@ See `docs/dev/compare-build-systems.md` for full documentation.
 
 ## Commit Organization, PR Cover Letter, and Refine PR
 
-These topics are covered in the **global agent instructions** (`global-agents-instructions.md`). The global rules apply here with the following ScyllaDB-specific additions:
+These topics are covered in the **global agent instructions** (`global-agents.instructions.md`). The global rules apply here with the following ScyllaDB-specific additions:
 
 ### ScyllaDB Module Prefixes
 Common module prefixes for commit messages: `db:`, `sstables_loader:`, `raft:`, `cql3:`, `compaction:`, `sstables:`, `locator:`, `alternator:`, `service:`, `replica:`, `test:`, `dht:`, `gms:`, `message:`.

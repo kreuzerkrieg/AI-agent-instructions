@@ -1,7 +1,7 @@
 # SCT (Scylla Cluster Tests) — Agent Instructions
 
 **Location:** `~/.config/github-copilot/intellij/scylla/sct-instructions.md`
-**Referenced from:** `~/.config/github-copilot/intellij/global-agents-instructions.md` (ScyllaDB Ecosystem table)
+**Referenced from:** `~/.config/github-copilot/intellij/global-agents.instructions.md` (ScyllaDB Ecosystem table)
 **Purpose:** SCT-specific conventions, analysis workflows, and metric mappings that supplement the repo-level `.github/copilot-instructions.md`.
 
 ---
@@ -1411,7 +1411,7 @@ Given a latte script and test config, compute actual unique rows:
 
 ## Lessons Learned — Self-Updating Section (SCT-specific)
 
-This section is **written and maintained by the agent itself**, following the same rules as the global Lessons Learned section in `global-agents-instructions.md`. Entries here are **SCT-specific** — general insights go in the global file instead.
+This section is **written and maintained by the agent itself**, following the same rules as the global Lessons Learned section in `global-agents.instructions.md`. Entries here are **SCT-specific** — general insights go in the global file instead.
 
 ### When to add an entry
 - The user corrects the agent on an SCT-specific workflow, file location, log format, metric interpretation, or analysis technique.
