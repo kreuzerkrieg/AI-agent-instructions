@@ -145,6 +145,7 @@ When the user types **`$cmd`**, list all defined `$`-prefixed commands with a on
 | `$plan-review` | global | Phase 1: plan responses to PR review comments (no changes until approved) |
 | `$finalize-review` | global | Phase 2: execute approved plan from `$plan-review` |
 | `$debunk <URL>` | scylladb | Triage a PR bot CI failure comment — verify each claim, propose Jira issues |
+| `$analyze-ci` | scylladb | Analyze PR/CI test failures by error signature, classify, and draft Jira issues |
 
 **Maintenance:** When adding a new `$` command to any instruction file, also add it to this table.
 
@@ -624,6 +625,22 @@ Each entry: a short title, the date, and a concise explanation of what was wrong
 1. Append the new entry at the bottom of this section.
 2. Keep entries concise — no more than 3–5 lines each.
 3. If an older entry is superseded, update or remove it rather than adding a contradictory one.
+4. Commit and push the change (see "Version Control for Instruction Files" above).
+
+### Periodic graduation (squash into standing sections)
+This section is a **staging area**, not a permanent home. Periodically review it and **graduate** entries into the appropriate standing section of the instruction files so the knowledge becomes a first-class rule rather than an append-only log.
+
+- **When to graduate:** an entry has proven stable across several sessions, multiple entries cluster around the same theme, or an entry clearly belongs in an existing section (e.g., a terminal lesson → "Terminal Command Rules", a commit lesson → "Commit Organization").
+- **How:** fold the insight into the relevant standing section (rewriting for consistency with surrounding prose), then remove the now-redundant entry here. Don't leave the same rule in two places.
+- **Cadence:** do a graduation pass whenever this section grows past ~5–7 entries, or when explicitly asked. Leave a dated HTML comment noting when the last graduation happened.
+4. Commit and push the change (see "Version Control for Instruction Files" above).
+
+### Periodic graduation (squash into standing sections)
+This section is a **staging area**, not a permanent home. Periodically review it and **graduate** entries into the appropriate standing section of the instruction files so the knowledge becomes a first-class rule rather than an append-only log.
+
+- **When to graduate:** an entry has proven stable across several sessions, multiple entries cluster around the same theme, or an entry clearly belongs in an existing section (e.g., a terminal lesson → "Terminal Command Rules", a commit lesson → "Commit Organization").
+- **How:** fold the insight into the relevant standing section (rewriting for consistency with surrounding prose), then remove the now-redundant entry here. Don't leave the same rule in two places.
+- **Cadence:** do a graduation pass whenever this section grows past ~5–7 entries, or when explicitly asked. Leave a dated HTML comment noting when the last graduation happened.
 4. Commit and push the change (see "Version Control for Instruction Files" above).
 
 ### Periodic graduation (squash into standing sections)
