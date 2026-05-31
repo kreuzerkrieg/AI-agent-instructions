@@ -542,84 +542,20 @@ for name, t in sorted(tests, key=lambda x: -x[1])[:20]:
 - Failed test logs are in `testlog/<mode>/failed_test/`; passing test logs are deleted unless `--save-log-on-success` is used
 - The `--no-gather-metrics` flag may be needed if cgroup permission errors occur
 
-## Code Conventions
-- **Seastar namespace**: `seastarx.hh` imports `using namespace seastar;` — do **not** prefix Seastar symbols with `seastar::`
-- **Coding style**: [Seastar coding style](https://github.com/scylladb/seastar/blob/master/coding-style.md) — snake_case, 4-space indent
-- **Headers must be self-contained**: each header compilable independently; verify with `ninja dev-headers`
-- **Commit messages**: `module: short description` format (e.g., `sstables: close fd on error`)
-- **Comments**: explain "why", not "what"; code should be self-documenting via clear naming
-- **Prefer standard library** over custom implementations; add complexity only when clearly justified
-- **Question requests**: don't blindly implement — evaluate trade-offs, identify issues, and suggest better alternatives when appropriate
-- **Concurrency**: all background work must have `stop()`/`close()` to await completion; bound memory usage of concurrent ops
-- **Hot paths**: avoid allocations, unbounded loops without preemption yields; use `seastar::future<>` properly
-- **Invariant checking**: assert for critical invariants, throw for recoverable ones, log for ignorable
+## Code Style
 
-## C++ Code Style
+C++ and Python style are governed by the repository's own instruction files, which Copilot auto-loads when you edit matching files. **Do not duplicate or restate them here** — follow them directly:
+- `.github/copilot-instructions.md` — project values, build/test commands, license header
+- `.github/instructions/cpp.instructions.md` — C++ style, Seastar patterns, memory management, error handling, naming, forbidden constructs
+- `.github/instructions/python.instructions.md` — Python style and testing conventions
 
-**Important:** Always match the style and conventions of existing code in the file and directory.
+Always match the existing style of the file and directory you edit. Some directories (e.g. `test/cqlpy`, `test/alternator`) deliberately omit type hints and docstrings.
 
-### Naming
-- `snake_case` for classes, functions, variables, namespaces, constants/constexpr
-- `CamelCase` for template parameters (e.g., `template<typename ValueType>`)
-- `_prefix` for private member variables (e.g., `int _count;`)
-- No prefix for struct (value-only) members
-- Files: `.hh` for headers, `.cc` for source
-
-### Formatting
-- 4 spaces indentation, never tabs; 160 character line limit
-- K&R braces (opening on same line); brace all scopes, even single statements
-- Namespace bodies not indented; closing `} // namespace name`
-- `#pragma once` for all headers (no `#ifndef` guards)
-- Continuation indent: 8 spaces (double indent)
-- Space after keywords (`if (`, `while (`), not after function names
-- Minimal patches: only format code you modify, never reformat entire files
-
-### Include Order
-1. Own header first (for `.cc` files)
-2. C++ standard library (`<vector>`, `<map>`)
-3. Seastar headers with angle brackets (`<seastar/core/future.hh>`)
-4. Boost headers
-5. Project-local headers with quotes (`"db/config.hh"`)
-
-Forward declare when possible. Never `using namespace` in headers.
-
-### Memory Management
-- Stack allocation preferred; `std::unique_ptr` by default for dynamic allocations
-- `new`/`delete` forbidden — use RAII
-- `seastar::lw_shared_ptr` for shared ownership within same shard
-- `seastar::foreign_ptr` for cross-shard; avoid `std::shared_ptr`
-
-### Seastar Async Patterns
-- `seastar::future<T>` for all async operations
-- Prefer coroutines (`co_await`/`co_return`) over `.then()` chains
-- `seastar::gate` for shutdown coordination; `seastar::semaphore` for resource limiting
-- `maybe_yield()` in long loops to avoid reactor stalls; no blocking calls
-- `sstring` (not `std::string`); `logging::logger` per module
-- Many files include `seastarx.hh`, which introduces common Seastar names; follow existing file/local conventions for `seastar::` qualification
-
-### Error Handling
-- Throw exceptions for errors (futures propagate them automatically)
-- In data path: use `std::expected` or `boost::outcome` instead of exceptions
-- `SCYLLA_ASSERT` for critical invariants (`utils/assert.hh`)
-- `on_internal_error()` for should-never-happen conditions
-
-### Type Safety
-- `bool_class<Tag>` instead of raw `bool` parameters
-- `enum class` always (never unscoped `enum`)
-- Strong typedefs for IDs and domain-specific types
-
-### Forbidden
-`malloc`/`free`, `printf`, raw owning pointers, `using namespace` in headers,
-blocking ops (`std::sleep`, `std::mutex`), `std::atomic`, new ad-hoc macros (prefer `constexpr`/inline functions; established project macros like `SCYLLA_ASSERT` are fine).
-
-## Python Code Style
-
-- PEP 8; 160 character line limit; 4 spaces indentation
-- Import order: standard library, third-party, local (never `from x import *`)
-- Type hints for function signatures (unless directory style omits them — e.g., `test/cqlpy`, `test/alternator`)
-- f-strings for formatting
-- `@pytest.mark.xfail` for currently-failing tests; unmark when fixed
-- Descriptive test names; docstrings explain what the test verifies and why
+### ScyllaDB-specific reminders (not always emphasized in the repo files)
+- `seastarx.hh` brings in `using namespace seastar;` — do **not** prefix Seastar symbols with `seastar::`
+- Headers must be self-contained — verify with `ninja dev-headers`
+- Prefer `bool_class<Tag>` over raw `bool` parameters; use strong typedefs for IDs and domain types
+- All background work must have `stop()`/`close()` to await completion; bound the memory of concurrent operations
 
 ## Lint and Formatting Tools
 
