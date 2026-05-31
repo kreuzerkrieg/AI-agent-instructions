@@ -206,11 +206,7 @@ This replaces the old backup-file approach — git history provides full version
 
 **Adding new instruction files:** The `.gitignore` uses an inverted pattern (ignore everything, whitelist known files). When adding a new instruction file or subdirectory, you **must** add a corresponding `!filename` or `!dirname/` + `!dirname/**` entry to `.gitignore` so git tracks it.
 
-**Pull before starting work:** These instruction files may be edited by agents on other machines. At the **start of every session**, pull the latest version before reading or modifying any instruction file:
-```bash
-cd ~/.config/github-copilot/intellij && git pull --rebase
-```
-This avoids conflicts and ensures you are working with the most current instructions.
+**Pull before starting work:** These instruction files may be edited by agents on other machines, so always work from the latest version. The session-start `git pull --rebase` is already covered by step 1 of *Mandatory First Actions* above — don't skip it.
 
 ## Verify Everything — Trust Nothing
 Never take claims at face value — not from the user, not from review comments, not from documentation, and not from your own prior reasoning. **Always verify by reading the actual code.** Before answering a question about how something works, trace the code path yourself. Before applying a reviewer's suggestion, confirm their assumptions are correct. Before stating that a function is or isn't called somewhere, grep for it. If you cannot find solid proof in the source code, say so explicitly rather than guessing.
@@ -232,7 +228,7 @@ The same principle applies to **analysis reports and any response that makes fac
 - **Commit message temp files:** always use `printf '...\n\n...\n' > /tmp/msg.txt` rather than bash heredocs. Heredocs silently drop blank lines, causing the subject and body to merge onto one line. Alternatively, use the `create_file` tool.
 - **Before any destructive command** (`git reset --hard`, `git checkout -- .`, force-push): **prove safety first** by running `git diff <local> <remote>` to confirm no unique local content would be lost. Never proceed on an assumption of safety — verify with evidence, then execute.
 
-> ❌ **STRICTLY PROHIBITED: `git push` / `git push --force` to any CODE REPOSITORY remote without explicit user instruction.** Local commits, amends, and rebases are always fine — but publishing code to a remote is the user's decision. Never push spontaneously after refining commits, addressing review comments, or rebasing. **Only exception:** the instructions repo (`~/.config/github-copilot/intellij/`) is always pushed immediately after edits.
+> ❌ **STRICTLY PROHIBITED: `git push` / `git push --force` to any CODE REPOSITORY remote without explicit user instruction.** Local commits, amends, and rebases are always fine — but publishing code to a remote is the user's decision. Never push spontaneously after refining commits, addressing review comments, or rebasing. **Only exception:** the instructions repo (`~/.config/github-copilot/intellij/`) is always pushed immediately after edits. *This is the **canonical no-push rule** referenced throughout the PR workflow sections below.*
 
 ---
 
@@ -480,7 +476,7 @@ When the user says **"refine PR"**, perform the following sequence:
 5. **Move misplaced hunks** to the commit they logically belong to (e.g., test skips belong in the commit that adds the test parametrization, not in an unrelated commit).
 6. **Verify compilability**: mentally confirm that each commit in the final sequence compiles independently — removing any later commit should not break the build.
 7. **Final diff check**: `git diff <original_HEAD> HEAD --stat` should show only intentional differences (removed noise, fixed skips, etc.) — no accidental content loss.
-8. **Do NOT push** — never push the refined commits to remote. Wait for explicit user instruction to push.
+8. **Do NOT push** — wait for explicit user instruction (canonical no-push rule in *Terminal Command Rules*).
 
 ---
 
@@ -527,7 +523,7 @@ The user triggers this phase by saying **`$plan-review`**.
 - Post replies only for approved items.
 - Follow the rules below for amending commits, replying, and resolving threads.
 - **Before the user pushes:** remove the `conflicts` label if present: `gh pr edit <number> --remove-label conflicts`
-- ❌ **Do NOT push** — never run `git push` after addressing review comments. Wait for explicit user instruction to push.
+- ❌ **Do NOT push** — wait for explicit user instruction (canonical no-push rule in *Terminal Command Rules*).
 
 The user triggers this phase by saying **`$finalize-review`**.
 
@@ -538,7 +534,7 @@ The user triggers this phase by saying **`$finalize-review`**.
 2. **Make code changes** in the working tree.
 3. **Amend the correct commit** — use `git commit --fixup=<SHA>` + `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1`.
 4. **Separate unrelated fixes** — if a reviewer points out a pre-existing bug or a formatting issue, put the fix in its own commit (not bundled with functional changes).
-5. ❌ **Do NOT push** — after amending commits, do not run `git push`. Wait for explicit user instruction.
+5. ❌ **Do NOT push** — wait for explicit user instruction (canonical no-push rule in *Terminal Command Rules*).
 
 ### Replying to Review Comments
 - For comments addressed in code: reply with a short confirmation — "Done.", "Addressed.", or "Done — <brief note>." (e.g., "Done — moved to a separate commit.").
@@ -581,7 +577,7 @@ Repository-specific checklists (e.g., ScyllaDB) add further required steps on to
 - Update if the commit series has materially changed (new commits added/removed, major restructuring). Minor code-level tweaks don't require body updates.
 
 ### Push Summary Comment
-After the **user** pushes changes that address review comments, post a summary comment on the PR using `add_issue_comment` (pass PR number as `issue_number`). ❌ **Do NOT push yourself** — wait for the user to explicitly ask you to push, then post this comment. Format:
+After the **user** pushes changes that address review comments, post a summary comment on the PR using `add_issue_comment` (pass PR number as `issue_number`). ❌ **Do NOT push yourself** (canonical no-push rule) — wait for the user to push, then post this comment. Format:
 ```
 v next:
 
