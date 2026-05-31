@@ -204,6 +204,25 @@
       "url": "https://scylladb.metabaseapp.com/api/mcp",
       "enabled": true,
       "oauth": {}
+    },
+    "microsoft/markitdown": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "markitdown-mcp==0.0.1a4"
+      ],
+      "x-metadata": {
+        "registry": {
+          "api": {
+            "baseUrl": "https://api.mcp.github.com",
+            "version": "v0.1"
+          },
+          "mcpServer": {
+            "name": "microsoft/markitdown",
+            "version": "1.0.0"
+          }
+        }
+      }
     }
   }
 }
