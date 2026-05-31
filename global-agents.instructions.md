@@ -1,8 +1,10 @@
 # Global AI Coding Agent Instructions
 
+**This is the global instructions file** (`~/.config/github-copilot/intellij/global-agents.instructions.md`). It is loaded for every conversation regardless of which repository is open. Repository-specific instructions live in `.github/copilot-instructions.md` inside each repo.
+
 ---
 
-# 🚨🚨🚨 NEVER EVER COMMIT CREDENTIALS TO GIT — NOT EVEN ONCE 🚨🚨🚨
+## 🚨 Critical Rule: Never Commit Credentials to Git — Not Even Once
 
 > ## ‼️ THIS IS THE SINGLE MOST IMPORTANT RULE IN THIS ENTIRE FILE ‼️
 >
@@ -23,7 +25,23 @@
 
 ---
 
-**This is the global instructions file** (`~/.config/github-copilot/intellij/global-agents.instructions.md`). It is loaded for every conversation regardless of which repository is open. Repository-specific instructions live in `.github/copilot-instructions.md` inside each repo.
+## Table of Contents
+
+- [MANDATORY FIRST ACTIONS — Execute Before Anything Else](#-mandatory-first-actions--execute-before-anything-else)
+- [Project-Specific Instructions](#project-specific-instructions)
+- [Scratch / Temporary Files (CLion-specific)](#scratch--temporary-files-clion-specific)
+- [MCP Discovery — Opportunistic Search for New Tools](#mcp-discovery--opportunistic-search-for-new-tools)
+- [`$cmd` — List All Commands](#cmd--list-all-commands)
+- [Jira Integration (Atlassian MCP)](#jira-integration-atlassian-mcp)
+- [Verify Everything — Trust Nothing](#verify-everything--trust-nothing)
+- [Terminal Command Rules](#terminal-command-rules)
+- [Version Control for Instruction Files](#version-control-for-instruction-files)
+- [Secret Scanning — Git Hooks](#secret-scanning--git-hooks)
+- [Commit Organization](#commit-organization)
+- [PR Cover Letter](#pr-cover-letter)
+- [Refine PR](#refine-pr)
+- [PR Interaction Workflow](#pr-interaction-workflow)
+- [Lessons Learned — Self-Updating Section](#lessons-learned--self-updating-section)
 
 ---
 
@@ -68,6 +86,58 @@ Project-specific instructions are organized under subdirectories of this config 
 
 ---
 
+## Scratch / Temporary Files (CLion-specific)
+When creating **any** temporary or scratch files — analysis docs, migration call-chain notes, diagrams, test timing reports, query results, generated tables, or any other output that is not a source-code change — save them under the CLion scratches directory instead of polluting the repository tree:
+```
+~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/
+```
+Create the directory if it does not exist. **Never** place such files inside the repository working tree. This applies even when the user asks you to "build a table" or "save the results" — always default to the scratches directory unless the user explicitly specifies a different path.
+
+---
+
+## MCP Discovery — Opportunistic Search for New Tools
+
+When you encounter a **tool, service, or platform** during the session that is:
+1. mentioned in the codebase, instructions, or by the user, **and**
+2. not already configured as an MCP server (check `~/.config/github-copilot/intellij/mcp.json`), **and**
+3. a persistent service (not ephemeral infrastructure that only exists during test runs)
+
+…then **once per session**, do a background search for an MCP server:
+```
+search GitHub: "mcp server <tool-name>" sorted by stars
+```
+Also check **[cursor.directory](https://cursor.directory/)** — a community-curated directory of MCP servers. It aggregates servers across categories and can surface options that GitHub search misses.
+
+**Evaluation criteria** (all must be met to recommend):
+- ≥100 stars (maturity signal)
+- Official or well-maintained (recent commits, not archived)
+- The user actually interacts with the tool regularly (not just referenced in docs)
+- The tool has a stable, persistent endpoint the agent can connect to
+
+**If a good candidate is found**, briefly mention it to the user: *"Found an MCP server for X (N stars, official). Want me to add it?"* — do not add it without asking.
+
+**If nothing qualifies**, silently move on. Do not mention failed searches.
+
+**Track searched tools** in memory for the session to avoid redundant searches. Only search once per tool per session.
+
+---
+
+## `$cmd` — List All Commands
+
+When the user types **`$cmd`**, list all defined `$`-prefixed commands with a one-line description of each. Scan both global and project-specific instruction files for command definitions. Current commands:
+
+| Command | Defined in | Description |
+|---------|-----------|-------------|
+| `$cmd` | global | List all defined `$` commands |
+| `$plan-review` | global | Phase 1: plan responses to PR review comments (no changes until approved) |
+| `$finalize-review` | global | Phase 2: execute approved plan from `$plan-review` |
+| `$debunk <URL>` | scylladb | Triage a PR bot CI failure comment — verify each claim, propose Jira issues |
+| `$analyze-ci` | scylladb | Analyze PR/CI test failures by error signature, classify, and draft Jira issues |
+
+**Maintenance:** When adding a new `$` command to any instruction file, also add it to this table.
+
+---
+
 ## Jira Integration (Atlassian MCP)
 
 Jira access is available via the **Atlassian MCP server** configured in `~/.config/github-copilot/intellij/mcp.json`:
@@ -107,56 +177,45 @@ Generate tokens at: https://id.atlassian.com/manage-profile/security/api-tokens 
 
 ---
 
-## MCP Discovery — Opportunistic Search for New Tools
+## Verify Everything — Trust Nothing
+Never take claims at face value — not from the user, not from review comments, not from documentation, and not from your own prior reasoning. **Always verify by reading the actual code.** Before answering a question about how something works, trace the code path yourself. Before applying a reviewer's suggestion, confirm their assumptions are correct. Before stating that a function is or isn't called somewhere, grep for it. If you cannot find solid proof in the source code, say so explicitly rather than guessing.
 
-When you encounter a **tool, service, or platform** during the session that is:
-1. mentioned in the codebase, instructions, or by the user, **and**
-2. not already configured as an MCP server (check `~/.config/github-copilot/intellij/mcp.json`), **and**
-3. a persistent service (not ephemeral infrastructure that only exists during test runs)
-
-…then **once per session**, do a background search for an MCP server:
-```
-search GitHub: "mcp server <tool-name>" sorted by stars
-```
-Also check **[cursor.directory](https://cursor.directory/)** — a community-curated directory of MCP servers. It aggregates servers across categories and can surface options that GitHub search misses.
-
-**Evaluation criteria** (all must be met to recommend):
-- ≥100 stars (maturity signal)
-- Official or well-maintained (recent commits, not archived)
-- The user actually interacts with the tool regularly (not just referenced in docs)
-- The tool has a stable, persistent endpoint the agent can connect to
-
-**If a good candidate is found**, briefly mention it to the user: *"Found an MCP server for X (N stars, official). Want me to add it?"* — do not add it without asking.
-
-**If nothing qualifies**, silently move on. Do not mention failed searches.
-
-**Track searched tools** in memory for the session to avoid redundant searches. Only search once per tool per session.
+The same principle applies to **analysis reports and any response that makes factual claims**: only include claims backed by hard evidence from metrics, logs, or code. If a claim cannot be verified but is worth mentioning, label it explicitly as **"Speculation:"** or **"Unverified:"** — never present an inference as a fact. When computing metric deltas, always account for ALL label dimensions (e.g., `class`, `scheduling_group_name`) — aggregating across label values without awareness produces incorrect totals.
 
 ---
 
+## Terminal Command Rules
 
-## `$cmd` — List All Commands
+- **Leading space on every command:** Always prefix terminal commands with a single leading space (` git status`, not `git status`). This relies on `HISTCONTROL` containing `ignorespace` (or `ignoreboth`), which causes bash to skip recording commands that start with a space, keeping the user's shell history clean of agent-generated commands. **Note:** this is NOT set by default on this machine — it was added manually to `~/.bashrc` (`export HISTCONTROL=ignoreboth`). If the leading-space trick stops working, verify the setting with `echo $HISTCONTROL`.
 
-When the user types **`$cmd`**, list all defined `$`-prefixed commands with a one-line description of each. Scan both global and project-specific instruction files for command definitions. Current commands:
+> **⚠️ CRITICAL: You MUST NEVER run any terminal command that requires user intervention or waits for input.** This is an absolute, non-negotiable rule. Violations block the terminal and require the user to manually intervene. Offending commands include but are not limited to: `git rebase -i` (even with `--autosquash`), `git commit` without `-m`/`-F`, interactive editors (`vim`, `nano`, `less`), pagers, `read`, `select`, or any tool that prompts for input. The **only** exception is `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash` which is explicitly non-interactive because `GIT_SEQUENCE_EDITOR=true` suppresses the editor.
 
-| Command | Defined in | Description |
-|---------|-----------|-------------|
-| `$cmd` | global | List all defined `$` commands |
-| `$plan-review` | global | Phase 1: plan responses to PR review comments (no changes until approved) |
-| `$finalize-review` | global | Phase 2: execute approved plan from `$plan-review` |
-| `$debunk <URL>` | scylladb | Triage a PR bot CI failure comment — verify each claim, propose Jira issues |
-| `$analyze-ci` | scylladb | Analyze PR/CI test failures by error signature, classify, and draft Jira issues |
+- Commands whose output may exceed the terminal window (e.g. `git log`, `git diff --stat`, `git show`) **must** redirect output to a temporary file, then read it with `cat` or `read_file`. Never rely on the terminal fitting all output — if it doesn't, the command blocks waiting for user input (pager). Example: `git log --oneline HEAD~20..HEAD > /tmp/commits.txt && cat /tmp/commits.txt`
+- Always use `git --no-pager` or pipe through `| cat` as an alternative when redirection is inconvenient.
+- To amend an older commit, use fully non-interactive techniques:
+  - **Cherry-pick rebuild:** `git reset --hard <SHA>~1`, then `git cherry-pick --no-commit <SHA> && git commit -F <msg-file>`, then `git cherry-pick <SHA>..<original-HEAD>`.
+  - **Fixup + autosquash:** `git commit --fixup=<SHA>` (content) or `git commit --allow-empty --fixup=amend:<SHA> -F <msg-file>` (message), then `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1` — the `GIT_SEQUENCE_EDITOR=true` prevents any editor from opening, making the `-i` flag safe.
+- To amend the most recent commit message: write the new message to a file, then `git commit --amend -F <msg-file>`. Never use `git commit --amend` without `-m` or `-F` — that opens an editor.
+- **Commit message temp files:** always use `printf '...\n\n...\n' > /tmp/msg.txt` rather than bash heredocs. Heredocs silently drop blank lines, causing the subject and body to merge onto one line. Alternatively, use the `create_file` tool.
+- **Before any destructive command** (`git reset --hard`, `git checkout -- .`, force-push): **prove safety first** by running `git diff <local> <remote>` to confirm no unique local content would be lost. Never proceed on an assumption of safety — verify with evidence, then execute.
 
-**Maintenance:** When adding a new `$` command to any instruction file, also add it to this table.
+> ❌ **STRICTLY PROHIBITED: `git push` / `git push --force` to any CODE REPOSITORY remote without explicit user instruction.** Local commits, amends, and rebases are always fine — but publishing code to a remote is the user's decision. Never push spontaneously after refining commits, addressing review comments, or rebasing. **Only exception:** the instructions repo (`~/.config/github-copilot/intellij/`) is always pushed immediately after edits. *This is the **canonical no-push rule** referenced throughout the PR workflow sections below.*
 
 ---
 
-## Scratch / Temporary Files (CLion-specific)
-When creating **any** temporary or scratch files — analysis docs, migration call-chain notes, diagrams, test timing reports, query results, generated tables, or any other output that is not a source-code change — save them under the CLion scratches directory instead of polluting the repository tree:
+## Version Control for Instruction Files
+The instruction files directory (`~/.config/github-copilot/intellij/`) is a git repository tracked at `git@github.com:kreuzerkrieg/AI-agent-instructions.git`. **After making any edit** to files in this directory, commit and push the change:
+```bash
+cd ~/.config/github-copilot/intellij
+git add -A && git commit -m "<short description of what changed>" && git push
 ```
-~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/
-```
-Create the directory if it does not exist. **Never** place such files inside the repository working tree. This applies even when the user asks you to "build a table" or "save the results" — always default to the scratches directory unless the user explicitly specifies a different path.
+This replaces the old backup-file approach — git history provides full versioning. Commit messages should be concise but descriptive (e.g., "Add backtrace decoding section to SCT instructions").
+
+**Adding new instruction files:** The `.gitignore` uses an inverted pattern (ignore everything, whitelist known files). When adding a new instruction file or subdirectory, you **must** add a corresponding `!filename` or `!dirname/` + `!dirname/**` entry to `.gitignore` so git tracks it.
+
+**Pull before starting work:** These instruction files may be edited by agents on other machines, so always work from the latest version. The session-start `git pull --rebase` is already covered by step 1 of *Mandatory First Actions* above — don't skip it.
+
+---
 
 ## Secret Scanning — Git Hooks
 
@@ -194,42 +253,6 @@ bash ~/.config/github-copilot/intellij/scylla/bin/install-secret-hooks ~/.config
 1. `git-filter-repo --replace-text <(echo 'SECRET==>PLACEHOLDER')` — rewrites all history
 2. `git push --force`
 3. **Rotate the credential immediately** — assume it's compromised
-
----
-
-## Version Control for Instruction Files
-The instruction files directory (`~/.config/github-copilot/intellij/`) is a git repository tracked at `git@github.com:kreuzerkrieg/AI-agent-instructions.git`. **After making any edit** to files in this directory, commit and push the change:
-```bash
-cd ~/.config/github-copilot/intellij
-git add -A && git commit -m "<short description of what changed>" && git push
-```
-This replaces the old backup-file approach — git history provides full versioning. Commit messages should be concise but descriptive (e.g., "Add backtrace decoding section to SCT instructions").
-
-**Adding new instruction files:** The `.gitignore` uses an inverted pattern (ignore everything, whitelist known files). When adding a new instruction file or subdirectory, you **must** add a corresponding `!filename` or `!dirname/` + `!dirname/**` entry to `.gitignore` so git tracks it.
-
-**Pull before starting work:** These instruction files may be edited by agents on other machines, so always work from the latest version. The session-start `git pull --rebase` is already covered by step 1 of *Mandatory First Actions* above — don't skip it.
-
-## Verify Everything — Trust Nothing
-Never take claims at face value — not from the user, not from review comments, not from documentation, and not from your own prior reasoning. **Always verify by reading the actual code.** Before answering a question about how something works, trace the code path yourself. Before applying a reviewer's suggestion, confirm their assumptions are correct. Before stating that a function is or isn't called somewhere, grep for it. If you cannot find solid proof in the source code, say so explicitly rather than guessing.
-
-The same principle applies to **analysis reports and any response that makes factual claims**: only include claims backed by hard evidence from metrics, logs, or code. If a claim cannot be verified but is worth mentioning, label it explicitly as **"Speculation:"** or **"Unverified:"** — never present an inference as a fact. When computing metric deltas, always account for ALL label dimensions (e.g., `class`, `scheduling_group_name`) — aggregating across label values without awareness produces incorrect totals.
-
-## Terminal Command Rules
-
-- **Leading space on every command:** Always prefix terminal commands with a single leading space (` git status`, not `git status`). This relies on `HISTCONTROL` containing `ignorespace` (or `ignoreboth`), which causes bash to skip recording commands that start with a space, keeping the user's shell history clean of agent-generated commands. **Note:** this is NOT set by default on this machine — it was added manually to `~/.bashrc` (`export HISTCONTROL=ignoreboth`). If the leading-space trick stops working, verify the setting with `echo $HISTCONTROL`.
-
-> **⚠️ CRITICAL: You MUST NEVER run any terminal command that requires user intervention or waits for input.** This is an absolute, non-negotiable rule. Violations block the terminal and require the user to manually intervene. Offending commands include but are not limited to: `git rebase -i` (even with `--autosquash`), `git commit` without `-m`/`-F`, interactive editors (`vim`, `nano`, `less`), pagers, `read`, `select`, or any tool that prompts for input. The **only** exception is `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash` which is explicitly non-interactive because `GIT_SEQUENCE_EDITOR=true` suppresses the editor.
-
-- Commands whose output may exceed the terminal window (e.g. `git log`, `git diff --stat`, `git show`) **must** redirect output to a temporary file, then read it with `cat` or `read_file`. Never rely on the terminal fitting all output — if it doesn't, the command blocks waiting for user input (pager). Example: `git log --oneline HEAD~20..HEAD > /tmp/commits.txt && cat /tmp/commits.txt`
-- Always use `git --no-pager` or pipe through `| cat` as an alternative when redirection is inconvenient.
-- To amend an older commit, use fully non-interactive techniques:
-  - **Cherry-pick rebuild:** `git reset --hard <SHA>~1`, then `git cherry-pick --no-commit <SHA> && git commit -F <msg-file>`, then `git cherry-pick <SHA>..<original-HEAD>`.
-  - **Fixup + autosquash:** `git commit --fixup=<SHA>` (content) or `git commit --allow-empty --fixup=amend:<SHA> -F <msg-file>` (message), then `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1` — the `GIT_SEQUENCE_EDITOR=true` prevents any editor from opening, making the `-i` flag safe.
-- To amend the most recent commit message: write the new message to a file, then `git commit --amend -F <msg-file>`. Never use `git commit --amend` without `-m` or `-F` — that opens an editor.
-- **Commit message temp files:** always use `printf '...\n\n...\n' > /tmp/msg.txt` rather than bash heredocs. Heredocs silently drop blank lines, causing the subject and body to merge onto one line. Alternatively, use the `create_file` tool.
-- **Before any destructive command** (`git reset --hard`, `git checkout -- .`, force-push): **prove safety first** by running `git diff <local> <remote>` to confirm no unique local content would be lost. Never proceed on an assumption of safety — verify with evidence, then execute.
-
-> ❌ **STRICTLY PROHIBITED: `git push` / `git push --force` to any CODE REPOSITORY remote without explicit user instruction.** Local commits, amends, and rebases are always fine — but publishing code to a remote is the user's decision. Never push spontaneously after refining commits, addressing review comments, or rebasing. **Only exception:** the instructions repo (`~/.config/github-copilot/intellij/`) is always pushed immediately after edits. *This is the **canonical no-push rule** referenced throughout the PR workflow sections below.*
 
 ---
 
@@ -417,6 +440,8 @@ A WIP commit that "adds download tracking with progress reporting" might split i
 - **Dead code observations may be wrong.** A parameter that looks unused in one function may exist because callers rely on the signature for consistency, or because it documents an intent that will be used in a follow-up. Don't delete parameters just because a reviewer says "dead code" — verify the full picture first.
 - **When in doubt, present your reasoning to the user** rather than silently applying the change. Say "the reviewer suggests X, but I believe the current code is correct because Y — should I apply it anyway?"
 
+---
+
 ## PR Cover Letter
 
 Every PR needs a **title** and a **description body**. The description should give a reviewer enough context to understand the change without reading every commit first.
@@ -459,6 +484,8 @@ Fixes: https://github.com/org/repo/issues/986
 
 No backport needed since this is a new feature.
 ```
+
+---
 
 ## Refine PR
 
