@@ -625,7 +625,7 @@ blocking ops (`std::sleep`, `std::mutex`), `std::atomic`, new ad-hoc macros (pre
 
 - **clang-format**: config in `.clang-format`; run `clang-format --style=file -i <file>` (only format code you modify)
 - **Header self-containedness**: `ninja dev-headers` (after adding/removing headers, `touch configure.py` first)
-- **License header**: new `.cc`, `.hh`, `.py` files must contain `LicenseRef-ScyllaDB-Source-Available-1.0` in the first 10 lines
+- **License header**: new `.cc`, `.hh`, `.py` files must contain `LicenseRef-ScyllaDB-Source-Available-1.1` in the first 10 lines
 - **clang-tidy**: runs in CI on PRs; checks `bugprone-use-after-move`
 - **Build system alignment**: `scripts/compare_build_systems.py` — when reviewing or making changes to `CMakeLists.txt`, `configure.py`, or `cmake/mode.*.cmake`, run this script to verify both build systems stay in sync (see below)
 
