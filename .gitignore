@@ -12,7 +12,7 @@
 !mcp.json
 
 # Whitelist instruction files
-!global-agents-instructions.md
+!global-agents.instructions.md
 !scylla/
 !scylla/**
 !personal/
