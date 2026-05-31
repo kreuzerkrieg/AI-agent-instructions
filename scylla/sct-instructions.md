@@ -1431,6 +1431,9 @@ Each entry: a short title, the date, and a concise explanation. Keep entries to 
 2. If an older entry is superseded, update or remove it.
 3. Commit and push the change (see "Version Control for Instruction Files" in global instructions).
 
+### Periodic graduation (squash into standing sections)
+Like the global Lessons Learned, this is a **staging area**. Periodically fold stable, recurring entries into the relevant standing SCT section (e.g., a metric-tracing lesson → "ScyllaDB Prometheus Metrics", a TSDB lesson → "Prometheus TSDB Analysis") and remove the now-redundant entry here. Follow the global rule for cadence and method (see "Periodic graduation" in `global-agents.instructions.md`).
+
 ---
 
 ### ScyllaDB metrics use dynamic group names (2026-04-28)
