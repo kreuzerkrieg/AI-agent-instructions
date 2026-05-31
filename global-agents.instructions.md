@@ -663,3 +663,7 @@ This section is a **staging area**, not a permanent home. Periodically review it
 - Graduating is itself an instruction-file edit — commit and push it (see "Version Control for Instruction Files").
 
 <!-- All prior entries were graduated into standing sections on 2026-05-24. The section starts fresh below. -->
+
+### insert_edit_into_file can silently duplicate blocks in large files (2026-05-31)
+The `insert_edit_into_file` tool duplicated a block when editing this large file, and the duplicate survived to the pushed version because verification only compared section content as an unordered set — which cannot detect a pre-existing duplicate carried through unchanged.
+**Correct approach:** For structural edits to large files, prefer deterministic file-based scripts (read → transform → write), and after any edit grep for duplicate headings/blocks (e.g. `grep -c "### Heading"`) rather than relying on set/checksum equality.
