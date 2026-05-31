@@ -21,7 +21,7 @@
 
 ### Connect
 ```bash
-ssh -i ~/Downloads/ernest.pem ubuntu@3.91.29.41
+ssh -i ~/Downloads/ernest.pem ubuntu@<IP>
 ```
 
 ### PEM file: current location
@@ -226,7 +226,7 @@ aws --profile 797456418907-DevOpsAccessRole ssm start-session \
 ### Recommended `.ssh/config` entry (once PEM is in ~/.ssh/)
 ```
 Host arm-scylla
-    HostName 3.91.29.41       # update IP after each start
+    HostName <IP>             # update IP after each start
     User ubuntu
     IdentityFile ~/.ssh/ernest.pem
     ServerAliveInterval 60
