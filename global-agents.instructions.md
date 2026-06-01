@@ -186,6 +186,17 @@ The same principle applies to **analysis reports and any response that makes fac
 
 ## Terminal Command Rules
 
+> ## 🟦 ALWAYS START EVERY TERMINAL COMMAND WITH A LEADING SPACE 🟦
+>
+> **This is a non-negotiable, every-single-command rule — not an occasional nicety.** Before running *any* command, the first character you type MUST be a space (` git status`, never `git status`).
+>
+> - ✅ **DO:** ` ninja build/dev/scylla`, ` ls -la`, ` cat /tmp/out.txt`
+> - ❌ **NEVER:** `ninja build/dev/scylla`, `ls -la`, `cat /tmp/out.txt`
+>
+> **Why:** `HISTCONTROL=ignoreboth` (set manually in `~/.bashrc`) makes bash skip recording any command that starts with a space, keeping the user's shell history free of agent-generated noise. A single forgotten space permanently pollutes the user's history.
+>
+> **If you ever notice you forgot the leading space, treat it as a lapse to correct immediately and resume prefixing every command.**
+
 - **Leading space on every command:** Always prefix terminal commands with a single leading space (` git status`, not `git status`). This relies on `HISTCONTROL` containing `ignorespace` (or `ignoreboth`), which causes bash to skip recording commands that start with a space, keeping the user's shell history clean of agent-generated commands. **Note:** this is NOT set by default on this machine — it was added manually to `~/.bashrc` (`export HISTCONTROL=ignoreboth`). If the leading-space trick stops working, verify the setting with `echo $HISTCONTROL`.
 
 > **⚠️ CRITICAL: You MUST NEVER run any terminal command that requires user intervention or waits for input.** This is an absolute, non-negotiable rule. Violations block the terminal and require the user to manually intervene. Offending commands include but are not limited to: `git rebase -i` (even with `--autosquash`), `git commit` without `-m`/`-F`, interactive editors (`vim`, `nano`, `less`), pagers, `read`, `select`, or any tool that prompts for input. The **only** exception is `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash` which is explicitly non-interactive because `GIT_SEQUENCE_EDITOR=true` suppresses the editor.
