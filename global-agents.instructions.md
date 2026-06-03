@@ -113,9 +113,21 @@ directory / sstables and can be hundreds of GB); copy just the `*.log` files you
 
 **Cleanup discipline:** `_internal/` is disposable. Periodically prune it — delete snapshots and
 scripts once their analysis is finalized into a user-facing report, and scrub anything you are
-100% sure is obsolete. Keep a short `_internal/README.md` inventory (what each item is + when it's
-safe to delete) so future sessions can prune confidently. When in doubt, keep — but don't let it
-grow unbounded.
+100% sure is obsolete. When in doubt, keep — but don't let it grow unbounded.
+
+**README bootstrap (do not rely on the local copy surviving):** `_internal/README.md` documents
+the area's purpose + cleanup policy and is tracked canonically in this repo at
+`scratch/_internal-README.md`. When you first touch `_internal/` in a session, if
+`_internal/README.md` is **absent or older than** the repo template, copy it over:
+```bash
+SRC=~/.config/github-copilot/intellij/scratch/_internal-README.md
+DST=~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/_internal/README.md
+mkdir -p "$(dirname "$DST")"
+[ ! -f "$DST" ] || [ "$SRC" -nt "$DST" ] && cp "$SRC" "$DST"
+```
+Keep machine-specific item tracking in a separate **local** `_internal/INVENTORY.md` (untracked) —
+a short table of each item, its purpose, and when it's safe to delete — so the README stays a
+clean, overwrite-safe copy of the repo template.
 
 ---
 
