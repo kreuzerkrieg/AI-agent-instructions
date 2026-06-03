@@ -93,6 +93,30 @@ When creating **any** temporary or scratch files — analysis docs, migration ca
 ```
 Create the directory if it does not exist. **Never** place such files inside the repository working tree. This applies even when the user asks you to "build a table" or "save the results" — always default to the scratches directory unless the user explicitly specifies a different path.
 
+### Two-tier layout: user-facing vs agent-internal
+The scratches directory has **two tiers** — keep them strictly separated:
+
+- **`GitHubCopilot/`** (top level) — **user-facing only.** Reports, analyses, documents, and any
+  deliverable the user expects to read. Treat it as the clean "output" surface.
+- **`GitHubCopilot/_internal/`** — **the agent's private working area.** Put everything you need
+  for *yourself* here: helper scripts, follow-up notes, intermediate/derived data, and **slim log
+  snapshots** you take to preserve state across runs. The user does not expect to browse this.
+
+Default rule: if an artifact is something *you* need to do the work, it goes in `_internal/`;
+if it's something the *user* asked to see or will read, it goes at the top level. Create
+`_internal/` if it does not exist.
+
+**Log snapshots:** when a run's output dir (e.g. `~/Development/scylladb/testlog/`) will be
+overwritten by the next run and you need to diff against it later, copy a snapshot into
+`_internal/`. **Snapshot logs only** — never `cp -r` a whole `testlog/` (it contains the data
+directory / sstables and can be hundreds of GB); copy just the `*.log` files you actually parse.
+
+**Cleanup discipline:** `_internal/` is disposable. Periodically prune it — delete snapshots and
+scripts once their analysis is finalized into a user-facing report, and scrub anything you are
+100% sure is obsolete. Keep a short `_internal/README.md` inventory (what each item is + when it's
+safe to delete) so future sessions can prune confidently. When in doubt, keep — but don't let it
+grow unbounded.
+
 ---
 
 ## MCP Discovery — Opportunistic Search for New Tools
