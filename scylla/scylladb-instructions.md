@@ -308,6 +308,17 @@ grep -n "repair\|error\|timeout" testlog/<mode>/failed_test/<test_dir>/scylla-*.
 sed -n '5000,5100p' testlog/<mode>/failed_test/<test_dir>/scylla-gw16-13.log
 ```
 
+#### Seastar log line format — use the scheduling group to separate workload phases
+
+Every Scylla log line is prefixed by Seastar as:
+`<LEVEL>  <YYYY-MM-DD HH:MM:SS,mmm> [shard <N>: <SG>] <logger> - <message>`
+
+The `<SG>` field is the **scheduling group** abbreviation (space-padded), and it is invaluable for slicing a log by what the database was actually doing — without any code changes. Common abbreviations: `main` (main/control plane), `mt` (memtable/write path), `mt2c` (memtable-to-cache), `comp` (compaction), `strm` (streaming), `sl:*`/`st`-like names (statement/user query path). For example, S3 object requests issued while serving a user read appear in the statement group, while inserts/flush land in `mt` and compaction in `comp`.
+
+Two practical techniques:
+- **Phase isolation by SG**: when a test writes, flushes, compacts, then reads, filter log lines by the SG (e.g. exclude `mt`/`comp`/`mt2c`) to isolate read-path activity. Cross-check with timestamps of test phase markers from the pytest log (e.g. `Executing query ...` → `Query ... returned N rows`).
+- **Tabulate SG × event**: `sed -E 's/.*\[shard [0-9]+: *([a-zA-Z0-9:_]+)\] <logger> - <verb> ([A-Z]+) .*/\1 \2/' | sort | uniq -c | sort -rn` gives a quick breakdown of which scheduling group is doing what.
+
 ### Retrieving per-test execution times
 
 #### SQLite database (preferred for Boost/C++ tests)

@@ -678,3 +678,12 @@ This section is a **staging area**, not a permanent home. Periodically review it
 ### insert_edit_into_file can silently duplicate blocks in large files (2026-05-31)
 The `insert_edit_into_file` tool duplicated a block when editing this large file, and the duplicate survived to the pushed version because verification only compared section content as an unordered set — which cannot detect a pre-existing duplicate carried through unchanged.
 **Correct approach:** For structural edits to large files, prefer deterministic file-based scripts (read → transform → write), and after any edit grep for duplicate headings/blocks (e.g. `grep -c "### Heading"`) rather than relying on set/checksum equality.
+
+### Verify the concrete implementation before instrumenting a polymorphic/factory path (2026-06-03)
+Asked to count HTTP requests "per source", I added a counter to `download_source` — but the read path actually instantiated `chunked_download_source` via a factory chain (`make_source` → wrapper `make_download_source` → `make_chunked_download_source`). The instrumentation would never have fired. Name similarity is not proof; the factory dispatch determines the concrete type.
+**Correct approach:** When adding logging/metrics/counters to an interface or factory-dispatched code path, trace the factory/virtual call chain to the concrete class the target path actually creates, then instrument that. Confirm by reading the wiring, not by matching class names.
+
+### Prefer a shared chokepoint over per-implementation instrumentation (2026-06-03)
+After the per-source counter mis-fire, the better solution was a single log line at the shared `make_request` chokepoint that every verb funnels through. It is a smaller diff, cannot miss a path, and catches all request types (GET/HEAD/PUT/DELETE) — surfacing things like excessive HEADs that per-source GET counting would never reveal. The request URL also carried the object name, so per-object attribution was still possible via `grep`.
+**Correct approach:** For "how many / what kind of operations are we doing" questions, instrument the single layer all operations pass through, not each producer. Note the caveat: a logical-call chokepoint counts logical calls, not lower-level retries — call that out when retries live below the instrumented layer.
+
