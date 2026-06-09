@@ -177,7 +177,9 @@
       "type": "stdio",
       "command": "uvx",
       "args": [
-        "markitdown-mcp==0.0.1a4"
+        "--from",
+        "markitdown-mcp==0.0.1a4",
+        "markitdown-mcp"
       ],
       "x-metadata": {
         "registry": {
