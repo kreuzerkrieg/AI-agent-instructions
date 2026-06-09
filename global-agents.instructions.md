@@ -35,6 +35,8 @@
 - [`$cmd` — List All Commands](#cmd--list-all-commands)
 - [Jira Integration (Atlassian MCP)](#jira-integration-atlassian-mcp)
 - [Verify Everything — Trust Nothing](#verify-everything--trust-nothing)
+- [Code Review Principles](#code-review-principles)
+- [Engineering Principles](#engineering-principles)
 - [Terminal Command Rules](#terminal-command-rules)
 - [Version Control for Instruction Files](#version-control-for-instruction-files)
 - [Secret Scanning — Git Hooks](#secret-scanning--git-hooks)
@@ -229,6 +231,66 @@ Generate tokens at: https://id.atlassian.com/manage-profile/security/api-tokens 
 Never take claims at face value — not from the user, not from review comments, not from documentation, and not from your own prior reasoning. **Always verify by reading the actual code.** Before answering a question about how something works, trace the code path yourself. Before applying a reviewer's suggestion, confirm their assumptions are correct. Before stating that a function is or isn't called somewhere, grep for it. If you cannot find solid proof in the source code, say so explicitly rather than guessing.
 
 The same principle applies to **analysis reports and any response that makes factual claims**: only include claims backed by hard evidence from metrics, logs, or code. If a claim cannot be verified but is worth mentioning, label it explicitly as **"Speculation:"** or **"Unverified:"** — never present an inference as a fact. When computing metric deltas, always account for ALL label dimensions (e.g., `class`, `scheduling_group_name`) — aggregating across label values without awareness produces incorrect totals.
+
+---
+
+## Code Review Principles
+
+When performing a code review — whether reviewing a colleague's PR, reviewing AI-generated code before committing, or auditing a change for correctness — apply these principles.
+
+### Contract-First Review
+
+Before examining the code, derive the **behavioral contract** the PR promises: what it claims to do, from the title, description, linked issues, changelog entries, and tests. Then verify that the code actually fulfills that contract.
+
+- Treat PR metadata as part of the promise: a `Performance Improvement` PR claims measurable benefit; a `Bug Fix` claims the bug is fixed.
+- State findings as **violated invariants**, not checklist matches. Example: "This PR promises cached results are partitioned by all semantics-affecting inputs, but field Y is omitted, so two different plans can share one cache entry."
+- Do not approve based on plausibility alone. Map each material claim to proof before approving.
+
+### Impacted Surface Tracing
+
+When a PR changes an invariant, follow it through the **entire** system, not just the touched code:
+
+- All callers and callees (not only those in the diff)
+- Sibling implementations (if fixing behavior in component A, check component B for the same issue)
+- Lifecycle transitions: startup, steady state, shutdown, retry, cancellation, exceptions
+- Settings and feature flags that interact with the changed behavior
+- Anything that can still mutate **after** a guard or role check fires
+
+**Anti-pattern to avoid:** finding suspicious code, reasoning abstractly "this is safe because [memory layout / practical likelihood]", and moving on. If you cannot prove safety via a concrete trace with real values, report it as a concern or request the test that would prove it.
+
+### Evidence Requirements by Claim Type
+
+Map each claim type to the required proof before approving:
+
+- **Performance Improvement** → before/after measurements, a benchmark, or a focused performance test
+- **Bug Fix** → regression test, or a clear documented reason one is impractical
+- **New invariant** → tests at the boundary where violation would matter, not only at the helper or code path touched by the patch
+
+Missing proof for important behavior is a review concern even when the code looks plausible.
+
+### Tests Weaker Than the Contract
+
+If a test would pass even if the new feature were removed, incorrectly wired, or broken in a realistic way, it is **not evidence** — it is suspicious. Broad existing tests are insufficient unless they would fail if the new behavior were absent.
+
+When writing or reviewing tests, ask: *"Would this test catch the bug if I reverted the fix?"* If not, the test is too weak.
+
+---
+
+## Engineering Principles
+
+### Fail-Close: Avoid Fallback Paths
+
+When an operation fails, prefer **letting the error propagate** over silently substituting a default value or alternate behavior. Fallbacks hide bugs and make incidents harder to diagnose.
+
+If a fallback is genuinely necessary, follow the **fail-close principle**: never perform a destructive, expensive, or consequential action on the fallback path. Skip the operation and surface the error instead.
+
+Concrete example: when attribution data is unavailable, do not assume a safe default and proceed with a side-effecting action — let the run fail and retry once the data is available. **On uncertainty, do less, not more.**
+
+### New Validation on Existing Data = Backward Incompatibility
+
+Adding a new constraint, check, or validation that applies to **already-existing** data or configuration is a breaking change, even if the code change looks purely additive. A stricter validator that rejects previously-valid configs, a new schema check that throws on data created by an older version, or a new startup assertion that triggers on an existing cluster — all are backward-incompatible.
+
+Before adding any new enforcement: ask "does this apply to things that were valid before?" If yes, either gate it behind a setting, apply it only to newly created objects, or document it explicitly as a breaking change.
 
 ---
 
@@ -522,6 +584,11 @@ Use the same `module: short description` format as commit messages. If the PR sp
     - **Bug fix (especially critical/production)** → backport to all affected supported versions.
     - **New feature** → no backport needed.
     - **Refactoring only** → no backport needed.
+
+### Specificity Rule
+
+- **Always name the exact thing that changed.** Never write "Fix a bug" or "Improve performance" without saying what specifically. The reader scanning a changelog needs to know "does this affect me?" — vague entries answer nothing.
+- **For backward-incompatible changes:** always state (a) the old behavior, (b) the new behavior, and (c) how to restore the old behavior when possible. A reader upgrading an existing deployment needs all three.
 
 ### Example
 ```
