@@ -640,12 +640,16 @@ BuildID[sha1]=f8c51f5b98a5dd972f7354a334146c46096d8919
 ```
 Or extract it from the Scylla binary itself.
 
-### Decoding via Remote Service
+### Decoding via MCP (preferred)
 
-Send the raw backtrace with the build ID to the backtrace symbolization API:
+The backtrace server exposes an MCP endpoint at `https://backtrace.scylladb.com/mcp/` (configured as `scylla-backtrace` in `mcp.json`). When available, use the MCP tools directly — they handle build ID lookup and symbolization without manual curl commands.
+
+### Decoding via REST API (fallback)
+
+If the MCP server is unavailable, use the REST API directly:
 
 ```bash
-curl -s -X POST https://staging.backtrace.scylladb.com/api/backtrace \
+curl -s -X POST https://backtrace.scylladb.com/api/backtrace \
   -H "Content-Type: application/json" \
   -d '{
     "build_id": "<BUILD_ID_HEX>",
@@ -657,10 +661,10 @@ The `input` field should contain the raw log lines including the "Backtrace:" he
 
 The response JSON contains a `stdout` field with the fully symbolized backtrace, including function names, source files, and line numbers, as well as inlined frames.
 
-### Example
+### Example (REST API)
 
 ```bash
-curl -s -X POST https://staging.backtrace.scylladb.com/api/backtrace \
+curl -s -X POST https://backtrace.scylladb.com/api/backtrace \
   -H "Content-Type: application/json" \
   -d '{
     "build_id": "f8c51f5b98a5dd972f7354a334146c46096d8919",

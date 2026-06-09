@@ -191,6 +191,11 @@
           }
         }
       }
+    },
+    "scylla-backtrace": {
+      "type": "http",
+      "url": "https://backtrace.scylladb.com/mcp/",
+      "enabled": true
     }
   }
 }
