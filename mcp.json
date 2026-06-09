@@ -175,10 +175,12 @@
     },
     "microsoft/markitdown": {
       "type": "stdio",
-      "command": "uvx",
+      "command": "/home/ernest.zaslavsky/.local/bin/uvx",
       "args": [
         "--prerelease",
         "allow",
+        "--with",
+        "pydantic<2.14",
         "markitdown-mcp"
       ],
       "x-metadata": {
