@@ -175,7 +175,7 @@
     },
     "microsoft/markitdown": {
       "type": "stdio",
-      "command": "/home/ernest.zaslavsky/.local/bin/uvx",
+      "command": "~/.local/bin/uvx",
       "args": [
         "--prerelease",
         "allow",
