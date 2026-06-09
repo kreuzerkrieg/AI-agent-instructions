@@ -31,6 +31,7 @@
 - [Project-Specific Instructions](#project-specific-instructions)
 - [Scratch / Temporary Files (CLion-specific)](#scratch--temporary-files-clion-specific)
 - [MCP Discovery — Opportunistic Search for New Tools](#mcp-discovery--opportunistic-search-for-new-tools)
+- [Markdown Conversion — Tool Routing](#markdown-conversion--tool-routing)
 - [`$cmd` — List All Commands](#cmd--list-all-commands)
 - [Jira Integration (Atlassian MCP)](#jira-integration-atlassian-mcp)
 - [Verify Everything — Trust Nothing](#verify-everything--trust-nothing)
@@ -155,6 +156,17 @@ Also check **[cursor.directory](https://cursor.directory/)** — a community-cur
 **If nothing qualifies**, silently move on. Do not mention failed searches.
 
 **Track searched tools** in memory for the session to avoid redundant searches. Only search once per tool per session.
+
+---
+
+## Markdown Conversion — Tool Routing
+
+Two markdown-conversion MCP servers are configured, and **both are kept on purpose**. They share the same underlying engine (`markdownify-mcp` wraps Microsoft's `markitdown`), so output is identical — route by **input type**, which matches each server's natural input model:
+
+- **Local files** (PDF, DOCX, XLSX, PPTX, images, audio, local `.md`) → use **`markdownify-mcp`** tools (`pdf-to-markdown`, `docx-to-markdown`, `image-to-markdown`, `audio-to-markdown`, `get-markdown-file`, etc.). These take filesystem paths. It also owns the extras with no `markitdown` equivalent: `youtube-to-markdown`, `bing-search-to-markdown`, `git-repo-to-markdown`.
+- **URIs** (`http:`, `https:`, `data:`) → use **`microsoft/markitdown`**'s `convert_to_markdown(uri)`. It's the lighter, official, URI-oriented path for web pages and remote/data resources.
+
+Rule of thumb: **path on disk → markdownify-mcp; URL/URI → markitdown.**
 
 ---
 
