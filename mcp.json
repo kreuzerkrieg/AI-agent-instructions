@@ -175,7 +175,7 @@
     },
     "microsoft/markitdown": {
       "type": "stdio",
-      "command": "~/.local/bin/uvx",
+      "command": "uvx",
       "args": [
         "--prerelease",
         "allow",
