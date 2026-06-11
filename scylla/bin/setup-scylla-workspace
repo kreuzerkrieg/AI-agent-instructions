@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# setup-scylla-workspace — provision a ScyllaDB clone with Copilot/CLion exclusions
+#
+# Usage: setup-scylla-workspace [/path/to/scylladb-clone]
+#        (defaults to current directory if not specified)
+#
+# What it does:
+#   1. Installs .copilotignore (prevents Copilot language server from indexing trash)
+#   2. Adds .copilotignore to .git/info/exclude (so it's never committed)
+#   3. Adds CLion excludeRoots to .idea/misc.xml (if .idea/ exists)
+#
+# Safe to run multiple times — idempotent.
+
+set -euo pipefail
+
+TEMPLATE_DIR="$HOME/.config/github-copilot/intellij/scylla/templates"
+TARGET_DIR="${1:-.}"
+
+# Resolve to absolute path
+TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
+
+# Sanity check: is this a ScyllaDB clone?
+if [[ ! -f "$TARGET_DIR/configure.py" ]] || [[ ! -d "$TARGET_DIR/seastar" ]]; then
+    echo "ERROR: $TARGET_DIR does not look like a ScyllaDB clone." >&2
+    echo "       Expected configure.py and seastar/ to exist." >&2
+    exit 1
+fi
+
+echo "Setting up workspace: $TARGET_DIR"
+
+# --- 1. Install .copilotignore ---
+COPILOTIGNORE="$TARGET_DIR/.copilotignore"
+TEMPLATE="$TEMPLATE_DIR/copilotignore"
+
+if [[ -f "$TEMPLATE" ]]; then
+    cp "$TEMPLATE" "$COPILOTIGNORE"
+    echo "  ✓ .copilotignore installed"
+else
+    echo "  ⚠ Template not found at $TEMPLATE — skipping .copilotignore" >&2
+fi
+
+# --- 2. Add to .git/info/exclude ---
+EXCLUDE_FILE="$TARGET_DIR/.git/info/exclude"
+if [[ -f "$EXCLUDE_FILE" ]]; then
+    grep -qF ".copilotignore" "$EXCLUDE_FILE" 2>/dev/null || {
+        echo ".copilotignore" >> "$EXCLUDE_FILE"
+        echo "  ✓ Added .copilotignore to .git/info/exclude"
+    }
+    grep -qF "copilot-oom-crash-summary.md" "$EXCLUDE_FILE" 2>/dev/null || {
+        echo "copilot-oom-crash-summary.md" >> "$EXCLUDE_FILE"
+    }
+else
+    echo "  ⚠ No .git/info/exclude found — is this a git repo?" >&2
+fi
+
+# --- 3. Patch CLion .idea/misc.xml with excludeRoots ---
+MISC_XML="$TARGET_DIR/.idea/misc.xml"
+if [[ -f "$MISC_XML" ]]; then
+    # Check if CidrRootsConfiguration already has our markers
+    if grep -q "tools" "$MISC_XML" 2>/dev/null; then
+        echo "  ✓ CLion excludeRoots already configured"
+    else
+        # Insert our excludeRoots block. If CidrRootsConfiguration exists, replace it.
+        # If not, add it before the closing </project> tag.
+        EXCLUDE_BLOCK='  <component name="CidrRootsConfiguration">
+    <excludeRoots>
+      <file path="$PROJECT_DIR$/.cache" />
+      <file path="$PROJECT_DIR$/abseil" />
+      <file path="$PROJECT_DIR$/build" />
+      <file path="$PROJECT_DIR$/ci-logs" />
+      <file path="$PROJECT_DIR$/cmake-build-debug-clang" />
+      <file path="$PROJECT_DIR$/docs/_build" />
+      <file path="$PROJECT_DIR$/swagger-ui" />
+      <file path="$PROJECT_DIR$/testlog" />
+      <file path="$PROJECT_DIR$/tools" />
+      <file path="$PROJECT_DIR$/venv" />
+    </excludeRoots>
+  </component>'
+
+        if grep -q "CidrRootsConfiguration" "$MISC_XML"; then
+            # Replace existing block
+            python3 -c "
+import re, sys
+with open('$MISC_XML', 'r') as f:
+    content = f.read()
+pattern = r'  <component name=\"CidrRootsConfiguration\">.*?</component>'
+replacement = '''$EXCLUDE_BLOCK'''
+content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+with open('$MISC_XML', 'w') as f:
+    f.write(content)
+"
+        else
+            # Insert before </project>
+            sed -i "s|</project>|$EXCLUDE_BLOCK\n</project>|" "$MISC_XML"
+        fi
+        echo "  ✓ CLion excludeRoots updated in misc.xml"
+    fi
+else
+    echo "  ⚠ No .idea/misc.xml — open the project in CLion first, then re-run" >&2
+fi
+
+echo "Done."
+

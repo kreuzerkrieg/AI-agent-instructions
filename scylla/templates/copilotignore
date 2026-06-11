@@ -1,0 +1,33 @@
+# Directories that the Copilot language server should NOT index.
+# These are either build artifacts, vendored dependencies, or generated files
+# that bloat the file-watcher and provide no useful context for completions.
+# Version control & IDE
+.git
+.idea
+.cache
+.ccls-cache/
+.mypy_cache
+# Build artifacts
+build/
+cmake-build-*/
+clang_build/
+# Test output (regrows to 70k+ files)
+testlog/
+# Python virtualenv
+venv/
+# Vendored / frozen toolchain (16k+ files)
+tools/
+# Third-party submodules / vendored code
+seastar/
+abseil/
+# Rust build artifacts
+rust/**/target/
+# Generated files
+compile_commands.json
+build.ninja
+# Misc
+docs/_build/
+swagger-ui/
+dist/
+nuke/
+resources/
