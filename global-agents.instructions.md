@@ -29,6 +29,7 @@
 
 - [MANDATORY FIRST ACTIONS — Execute Before Anything Else](#-mandatory-first-actions--execute-before-anything-else)
 - [Project-Specific Instructions](#project-specific-instructions)
+- [Copilot OOM Prevention](#copilot-oom-prevention)
 - [Scratch / Temporary Files (CLion-specific)](#scratch--temporary-files-clion-specific)
 - [MCP Discovery — Opportunistic Search for New Tools](#mcp-discovery--opportunistic-search-for-new-tools)
 - [Markdown Conversion — Tool Routing](#markdown-conversion--tool-routing)
@@ -83,11 +84,21 @@ Project-specific instructions are organized under subdirectories of this config 
 | `scylla/scylladb_all_metrics_mapping.md` | Reference for SCT metric analysis | Full mapping of ScyllaDB Prometheus metrics |
 | `scylla/arm-instance-setup.md` | Working with ARM/aarch64 testing or the personal ARM EC2 instance | Full reference: instance ID, AWS start/stop commands, Ubuntu-specific patches, library setup, LD_LIBRARY_PATH requirement |
 | `scylla/x86-instance-setup.md` | Working with the x86 i4i.4xlarge EC2 instance (perf tests, S3 stress) | Instance ID, copying Fedora libs to Ubuntu, passing AWS creds via script, ulimit, background runs |
-| `scylla/copilot-oom-prevention.md` | Copilot crashes (OOM/SIGABRT), new clone setup, workspace health | `.copilotignore` template, CLion excludeRoots, NODE_OPTIONS, auto-provisioning |
+| `scylla/copilot-oom-prevention.md` | Copilot crashes (OOM/SIGABRT) in a ScyllaDB workspace | ScyllaDB-specific `.copilotignore` template, auto-provisioning. Points to global `copilot-oom-prevention.md` |
 | `scylla/bin/refresh-aws-creds` | Any machine that needs AWS credential refresh | Installable script — copy to `~/.local/bin/` and `chmod +x`. See new-machine setup in arm-instance-setup.md |
 | `scylla/bin/setup-scylla-workspace` | Provisioning a new or existing ScyllaDB clone | Installs `.copilotignore`, CLion excludeRoots, git exclude |
 
 **Always read the relevant file at the start of a session** using `read_file` — do not rely on memory from prior conversations. If a file does not exist yet, notify the user so it can be created.
+
+---
+
+## Copilot OOM Prevention
+
+Large C++ projects (ScyllaDB ~62k files, ClickHouse ~714k files) crash the Copilot language server via V8 heap exhaustion. Every workspace with >50k files needs a `.copilotignore` at the repo root.
+
+**Full documentation:** `~/.config/github-copilot/intellij/copilot-oom-prevention.md`
+
+Quick reference — the global `NODE_OPTIONS=--max-old-space-size=8192` is set in `~/.config/environment.d/copilot.conf`. When opening any new large project, run the assessment commands from the doc to identify heavy directories and create a `.copilotignore`.
 
 ---
 
