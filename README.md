@@ -1,25 +1,32 @@
 # AI Agent Instructions
 
-Personal instruction files for AI coding agents (GitHub Copilot, Claude Code) tailored to ScyllaDB and SCT development workflows.
+Personal instruction files for AI coding agents (GitHub Copilot, Claude Code) tailored to large C++ projects (ScyllaDB, ClickHouse) and SCT development workflows.
 
 ## Structure
 
 ```
 ~/.config/github-copilot/intellij/
 ├── global-agents.instructions.md          # Loaded for every conversation (agent behavior, terminal rules, lessons learned)
-├── mcp.json                               # MCP server configuration (Atlassian, etc.)
+├── copilot-oom-prevention.md              # Global: preventing Copilot language server OOM on large projects
+├── mcp.json                               # MCP server configuration (Atlassian, GitHub, Context7, etc.)
 ├── README.md                              # This file
 ├── personal/                              # Git submodule (private, non-ScyllaDB instructions)
+├── scratch/
+│   └── _internal-README.md                # Template for the agent's internal working area
 └── scylla/
     ├── scylladb-instructions.md           # ScyllaDB C++ repo: build, test, code style, commit organization, PR format
     ├── sct-instructions.md                # SCT (Scylla Cluster Tests): log analysis, metrics, architecture
+    ├── copilot-oom-prevention.md          # ScyllaDB-specific OOM provisioning (points to global doc)
     ├── scylladb_all_metrics_mapping.md    # Complete mapping of ScyllaDB Prometheus metrics to C++ source
-    ├── arm-instance-setup.md              # Personal ARM EC2 instance setup, AWS commands, Ubuntu-specific patches
+    ├── arm-instance-setup.md              # Personal ARM EC2 instance setup, AWS commands, Ubuntu patches
     ├── x86-instance-setup.md              # Personal x86 EC2 instance (perf tests, S3 stress) setup
     ├── gitleaks.toml                      # Custom gitleaks config for detecting credentials
+    ├── templates/
+    │   └── copilotignore                  # Canonical .copilotignore for ScyllaDB clones
     └── bin/
         ├── refresh-aws-creds              # Script: refresh AWS credentials via TOTP
-        └── install-secret-hooks           # Script: install gitleaks pre-commit/pre-push hooks
+        ├── install-secret-hooks           # Script: install gitleaks pre-commit/pre-push hooks
+        └── setup-scylla-workspace         # Script: provision a ScyllaDB clone (.copilotignore, CLion excludeRoots)
 ```
 
 > Untracked local-only files may also be present (e.g. `sampling.json`, `secrets/`); these are excluded by `.gitignore`.
@@ -30,18 +37,31 @@ Personal instruction files for AI coding agents (GitHub Copilot, Claude Code) ta
   - Project-specific instruction routing table
   - Terminal command rules (leading space, no interactive commands, output redirection, **no push without explicit permission**)
   - Scratch file policy (save temp files under CLion scratches, not the repo)
+  - Copilot OOM prevention quick-reference
   - PR interaction workflow (plan-review / finalize-review two-phase process)
   - `$`-prefixed command system (`$cmd` lists all available commands)
   - Self-updating Lessons Learned section (periodically graduated into standing sections)
 
-- **`scylla/scylladb-instructions.md`** is loaded when working in the `scylladb/scylladb` repository. Covers build system, test runner, code style, commit organization, PR cover letter format, and review comment handling.
+- **`copilot-oom-prevention.md`** (global) covers the universal problem of Copilot crashing on large workspaces (>50k files). Applies to any project — ScyllaDB, ClickHouse, or any large C++ codebase. Documents:
+  - Defense layers: `.copilotignore`, CLion excludeRoots, NODE_OPTIONS heap, auto-provisioning
+  - Quick setup procedure for any new large project
+  - Universal and project-specific ignore patterns
+
+- **`scylla/scylladb-instructions.md`** is loaded when working in the `scylladb/scylladb` repository. Covers build system, test runner, code style, commit organization, PR cover letter format, CI failure analysis, and review comment handling.
 
 - **`scylla/sct-instructions.md`** is loaded when working in the `scylla-cluster-tests` repository. Covers SCT log analysis, archive structure, Prometheus TSDB analysis, and metric interpretation.
+
+- **`scylla/copilot-oom-prevention.md`** covers ScyllaDB-specific provisioning: the `.copilotignore` template, auto-provisioning via git hook, and `testlog/` maintenance.
+
+- **`scylla/templates/copilotignore`** is the canonical `.copilotignore` template for ScyllaDB clones. Installed by `setup-scylla-workspace` or the git post-checkout hook.
+
+- **`scylla/bin/setup-scylla-workspace`** provisions any ScyllaDB clone with `.copilotignore`, CLion excludeRoots, and git exclude entries. Run once per existing clone; new clones are auto-provisioned via the git template hook at `~/.config/git/templates/hooks/post-checkout`.
 
 - **`scylla/scylladb_all_metrics_mapping.md`** is a reference file consulted during Prometheus metric analysis.
 
 - **`scylla/arm-instance-setup.md`** covers the personal ARM EC2 instance (`i-05ccc6ae22cf5bc94`): start/stop commands, SSH access, Ubuntu-specific patches, LD_LIBRARY_PATH setup.
 
+- **`scylla/x86-instance-setup.md`** covers the personal x86 EC2 instance (i4i.4xlarge): perf tests, S3 stress, AWS credential forwarding.
 
 ## Version Control
 
@@ -53,3 +73,5 @@ git add -A && git commit -m "<description>" && git push
 ```
 
 The agent pulls at session start (`git pull --rebase`) to stay current with edits from other machines.
+
+The `.gitignore` uses an inverted pattern (ignore everything, whitelist known files). When adding a new instruction file, add a corresponding `!filename` entry to `.gitignore`.
