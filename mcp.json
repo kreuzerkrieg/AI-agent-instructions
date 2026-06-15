@@ -131,6 +131,11 @@
       "type": "http",
       "url": "https://backtrace.scylladb.com/mcp/",
       "enabled": true
+    },
+    "llama_index_docs": {
+      "type": "http",
+      "url": "https://developers.llamaindex.ai/mcp",
+      "enabled": true
     }
   }
 }
