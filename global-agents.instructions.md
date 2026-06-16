@@ -803,9 +803,9 @@ This section is a **staging area**, not a permanent home. Periodically review it
 
 <!-- All prior entries were graduated into standing sections on 2026-05-24. The section starts fresh below. -->
 
-### insert_edit_into_file can silently duplicate blocks in large files (2026-05-31)
-The `insert_edit_into_file` tool duplicated a block when editing this large file, and the duplicate survived to the pushed version because verification only compared section content as an unordered set — which cannot detect a pre-existing duplicate carried through unchanged.
-**Correct approach:** For structural edits to large files, prefer deterministic file-based scripts (read → transform → write), and after any edit grep for duplicate headings/blocks (e.g. `grep -c "### Heading"`) rather than relying on set/checksum equality.
+### When to use `read_file` vs `cat` (2026-06-10)
+I used `cat` to read a file that is always loaded by `read_file`, missing the deduplication and structured output that `read_file` provides.
+**Correct approach:** Prefer `read_file` for loading any file that is also used by `insert_edit_into_file` or `replace_string_in_file`. It avoids duplicate content and ensures consistent formatting. Use `cat` only for one-off reads of files not involved in edits.
 
 ### Verify the concrete implementation before instrumenting a polymorphic/factory path (2026-06-03)
 Asked to count HTTP requests "per source", I added a counter to `download_source` — but the read path actually instantiated `chunked_download_source` via a factory chain (`make_source` → wrapper `make_download_source` → `make_chunked_download_source`). The instrumentation would never have fired. Name similarity is not proof; the factory dispatch determines the concrete type.
@@ -818,3 +818,16 @@ After the per-source counter mis-fire, the better solution was a single log line
 ### PR commit-by-commit review must reference the commit's own code state (2026-06-10)
 When reviewing a PR commit by commit, I referenced line numbers and code from the **final** state of the file (after all 21 commits), not the state at the specific commit being reviewed. The file had 489 lines at commit 18 but I cited line 528 which only exists after commit 21 modifies it. This made the review inaccurate and confusing.
 **Correct approach:** When reviewing commit N, all file references (line numbers, code snippets, attribution) must be against the code **as it exists at that commit** — use `git show <sha>:<file>` to read the file at the commit being reviewed. Never cite line numbers from the final branch HEAD when attributing issues to an earlier commit.
+
+### File-edit tools can silently drop multi-line structural edits and echo a phantom "after" state (2026-06-16)
+While editing `hooks/handlers/output_compress.py` (a moderately large Python file), both
+`replace_string_in_file` and `insert_edit_into_file` reported "successfully edited" and the
+`file_after_edit` echo even contained the new code — but `grep` on the actual file showed the
+new symbols were **never written**. `py_compile` passed because the partial state was still
+syntactically valid, masking the failure.
+**Correct approach:** for any structural multi-line edit, immediately `grep` for a unique new
+symbol introduced by the edit; do not trust the tool's success message or its echoed file body.
+If the symbol is missing, fall back to a standalone python script that does
+`assert old in src; src = src.replace(old, new, 1); open(path,'w').write(src)` — the assertion
+fails loudly when the anchor doesn't match.
+
