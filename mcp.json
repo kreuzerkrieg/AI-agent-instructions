@@ -88,22 +88,6 @@
       "type": "http",
       "url": "https://mcp.context7.com/mcp"
     },
-    "victorialogs_clusters": {
-      "type": "remote",
-      "url": "https://victoria-logs-mcp.app.int.scylla.cloud/mcp",
-      "enabled": true
-    },
-    "victorialogs_infra": {
-      "type": "remote",
-      "url": "https://victoria-logs-infra-mcp.app.int.scylla.cloud/mcp",
-      "enabled": true
-    },
-    "metabase": {
-      "type": "remote",
-      "url": "https://scylladb.metabaseapp.com/api/mcp",
-      "enabled": true,
-      "oauth": {}
-    },
     "microsoft/markitdown": {
       "type": "stdio",
       "command": "uvx",
