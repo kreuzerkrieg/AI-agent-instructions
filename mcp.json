@@ -120,6 +120,21 @@
       "type": "http",
       "url": "https://developers.llamaindex.ai/mcp",
       "enabled": true
+    },
+    "prometheus-mcp": {
+      "type": "stdio",
+      "command": "/home/ernest.zaslavsky/Development/prometheus-mcp/venv/bin/python3",
+      "args": [
+        "/home/ernest.zaslavsky/Development/prometheus-mcp/local-mcp/prometheus_mcp_server.py",
+        "--thanos-url",
+        "https://thanos.app.int.scylla.cloud",
+        "--metrics-meta-file",
+        "/home/ernest.zaslavsky/Development/prometheus-mcp/local-mcp/enriched_metrics_catalog.yaml"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      },
+      "enabled": true
     }
   }
 }
