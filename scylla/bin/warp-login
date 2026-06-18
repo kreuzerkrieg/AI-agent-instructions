@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# warp-login — automate Cloudflare WARP Zero Trust enrollment for ScyllaDB.
+#
+# What it does:
+#   1. Stops any existing WARP session (disconnect + delete registration).
+#   2. Opens the enrollment URL in the default browser so you can do SSO.
+#   3. Watches the Wayland (or X11) clipboard for the auth token URL
+#      produced by inspecting/right-clicking the blue "Open Cloudflare WARP"
+#      button on the enrollment page. The button's href looks like:
+#          com.cloudflare.warp://scylladb.cloudflareaccess.com/auth?token=eyJ...
+#   4. Extracts the token, registers WARP, connects, selects the
+#      scylla-cloud-prod VNet, and verifies internal connectivity.
+#
+# Usage:
+#   warp-login                    # default org: scylladb
+#   warp-login --org <org>        # override org
+#   warp-login --vnet <uuid>      # override VNet UUID
+#   warp-login --no-reset         # skip disconnect/delete before re-registering
+#   warp-login --token <STRING>   # skip clipboard polling, use given token/URL
+#
+# After SSO, EITHER:
+#   • right-click the blue "Open Cloudflare WARP" button → "Copy Link", OR
+#   • F12 → copy the full <button onclick="..."> HTML
+# and the script will detect and use it automatically.
+set -euo pipefail
+
+ORG="scylladb"
+VNET_UUID="6666a685-9b3b-4f0c-bd18-36e0ae1c987d"   # scylla-cloud-prod
+ENROLL_URL="https://scylladb.cloudflareaccess.com/warp"
+RESET=1
+TOKEN_INPUT=""
+POLL_TIMEOUT="${WARP_LOGIN_TIMEOUT:-600}"           # seconds
+
+log()  { printf '\033[1;34m[warp-login]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[warp-login]\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[1;31m[warp-login]\033[0m %s\n' "$*" >&2; exit 1; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --org)      ORG="$2"; shift 2 ;;
+    --vnet)     VNET_UUID="$2"; shift 2 ;;
+    --no-reset) RESET=0; shift ;;
+    --token)    TOKEN_INPUT="$2"; shift 2 ;;
+    -h|--help)  sed -n '2,30p' "$0"; exit 0 ;;
+    *)          die "unknown arg: $1" ;;
+  esac
+done
+
+command -v warp-cli >/dev/null || die "warp-cli not found in PATH"
+
+# Detect clipboard tool (Wayland first, then X11).
+CLIP_READ=""
+if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]] && command -v wl-paste >/dev/null; then
+  CLIP_READ="wl-paste --no-newline"
+elif command -v xclip >/dev/null; then
+  CLIP_READ="xclip -selection clipboard -o"
+elif command -v xsel >/dev/null; then
+  CLIP_READ="xsel --clipboard --output"
+fi
+
+# Ensure warp-svc is running.
+if ! systemctl is-active --quiet warp-svc; then
+  log "starting warp-svc..."
+  sudo systemctl start warp-svc
+fi
+
+if [[ "$RESET" -eq 1 ]]; then
+  log "resetting any existing WARP registration..."
+  warp-cli --accept-tos disconnect       >/dev/null 2>&1 || true
+  warp-cli --accept-tos registration delete >/dev/null 2>&1 || true
+fi
+
+extract_token() {
+  # Accepts: raw token, com.cloudflare.warp://...?token=..., https://...?token=...,
+  #          or full button HTML containing onclick=...token=...
+  # Emits a normalized https URL on stdout, or exits non-zero.
+  local input="$1" tok
+  tok=$(printf '%s' "$input" \
+        | tr -d '\r\n\t '                  \
+        | grep -oE 'token=[A-Za-z0-9._-]+' \
+        | head -1                          \
+        | cut -d= -f2)
+  if [[ -z "$tok" && "$input" =~ ^[A-Za-z0-9._-]{40,}$ ]]; then
+    tok="$input"
+  fi
+  [[ -n "$tok" ]] || return 1
+  printf 'https://%s.cloudflareaccess.com/auth?token=%s\n' "$ORG" "$tok"
+}
+
+register_with() {
+  local url="$1"
+  log "registering with token (org=$ORG)..."
+  if ! warp-cli --accept-tos registration token "$url"; then
+    die "warp-cli registration failed — token may be expired; rerun and grab a fresh one"
+  fi
+  log "connecting..."
+  warp-cli --accept-tos connect
+  for _ in $(seq 1 30); do
+    sleep 1
+    s=$(warp-cli --accept-tos status 2>/dev/null | head -1 || true)
+    [[ "$s" == *"Connected"* ]] && break
+  done
+  log "selecting VNet $VNET_UUID..."
+  warp-cli --accept-tos vnet "$VNET_UUID" >/dev/null
+  log "status:"
+  warp-cli --accept-tos status
+  log "registration org: $(warp-cli --accept-tos registration organization 2>/dev/null || echo '?')"
+  log "smoke test: argowkf.app.int.scylla.cloud:443"
+  if command -v nc >/dev/null && timeout 5 nc -zv argowkf.app.int.scylla.cloud 443 2>&1 | tail -1; then
+    log "✔ internal endpoint reachable — WARP is up"
+  else
+    warn "internal endpoint check failed; verify Cloudflare CA cert + DNS"
+  fi
+}
+
+# Fast path: token provided on CLI.
+if [[ -n "$TOKEN_INPUT" ]]; then
+  url=$(extract_token "$TOKEN_INPUT") || die "could not parse token from --token argument"
+  register_with "$url"
+  exit 0
+fi
+
+log "opening enrollment URL: $ENROLL_URL"
+xdg-open "$ENROLL_URL" >/dev/null 2>&1 || warn "xdg-open failed; open the URL manually"
+
+cat <<EOF
+
+  In the browser:
+    1. Complete SSO (Okta).
+    2. On the page with the blue "Open Cloudflare WARP" button, either
+         • right-click the button → "Copy Link", OR
+         • F12 → inspect the button → copy the entire onclick attribute,
+       to your clipboard.
+
+  Waiting up to ${POLL_TIMEOUT}s for the token to appear in the clipboard...
+  (Ctrl-C and rerun with --token "<paste>" if clipboard polling fails.)
+
+EOF
+
+if [[ -z "$CLIP_READ" ]]; then
+  warn "no clipboard tool found (install wl-clipboard or xclip)."
+  read -r -p "Paste the button URL / onclick HTML / token, then press Enter: " manual
+  url=$(extract_token "$manual") || die "could not parse a token from input"
+  register_with "$url"
+  exit 0
+fi
+
+last_seen=""
+deadline=$(( $(date +%s) + POLL_TIMEOUT ))
+while (( $(date +%s) < deadline )); do
+  cur=$($CLIP_READ 2>/dev/null || true)
+  if [[ -n "$cur" && "$cur" != "$last_seen" ]]; then
+    last_seen="$cur"
+    if printf '%s' "$cur" | grep -qE 'token=[A-Za-z0-9._-]{40,}'; then
+      log "detected token in clipboard"
+      url=$(extract_token "$cur") || { warn "parse failed, keep waiting..."; continue; }
+      register_with "$url"
+      exit 0
+    fi
+  fi
+  sleep 1
+done
+
+die "timeout waiting for token in clipboard; rerun with --token \"<paste>\""
+

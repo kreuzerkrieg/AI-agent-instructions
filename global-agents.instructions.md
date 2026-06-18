@@ -87,6 +87,8 @@ Project-specific instructions are organized under subdirectories of this config 
 | `scylla/copilot-oom-prevention.md` | Copilot crashes (OOM/SIGABRT) in a ScyllaDB workspace | ScyllaDB-specific `.copilotignore` template, auto-provisioning. Points to global `copilot-oom-prevention.md` |
 | `scylla/bin/refresh-aws-creds` | Any machine that needs AWS credential refresh | Installable script — copy to `~/.local/bin/` and `chmod +x`. See new-machine setup in arm-instance-setup.md |
 | `scylla/bin/setup-scylla-workspace` | Provisioning a new or existing ScyllaDB clone | Installs `.copilotignore`, CLion excludeRoots, git exclude |
+| `scylla/warp-setup.md` | Installing/using Cloudflare WARP Zero Trust on Fedora | TL;DR + `warp-login` automation + Fedora-specific install (`webkit2gtk3` nodeps workaround) + lessons learned |
+| `scylla/bin/warp-login` | Daily WARP enrollment automation | Symlink into `~/.local/bin/`. Opens enrollment URL, polls clipboard for the token, registers, connects, selects `scylla-cloud-prod` VNet |
 
 **Always read the relevant file at the start of a session** using `read_file` — do not rely on memory from prior conversations. If a file does not exist yet, notify the user so it can be created.
 
