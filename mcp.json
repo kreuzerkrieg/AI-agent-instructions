@@ -135,6 +135,11 @@
         "PYTHONUNBUFFERED": "1"
       },
       "enabled": true
+    },
+    "victorialogs": {
+      "type": "http",
+      "url": "https://victoria-logs-mcp.app.int.scylla.cloud/mcp",
+      "enabled": true
     }
   }
 }

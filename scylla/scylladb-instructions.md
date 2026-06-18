@@ -674,6 +674,29 @@ curl -s -X POST https://backtrace.scylladb.com/api/backtrace \
 
 **Always decode backtraces before analyzing crashes** — raw addresses are not useful for diagnosis.
 
+## ScyllaDB Observability MCP Servers
+
+Two ScyllaDB-internal MCP servers are configured in `~/.config/github-copilot/intellij/mcp.json` for cluster diagnostics. Both **require WARP connected with the `scylla-cloud-prod` VNet** (`warp-cli connect && warp-cli vnet 6666a685-9b3b-4f0c-bd18-36e0ae1c987d`) plus the Cloudflare CA cert installed system-wide.
+
+### `prometheus-mcp` — Prometheus / Thanos metrics
+
+- Repo: <https://github.com/scylladb/prometheus-mcp>
+- Local clone: `~/Development/prometheus-mcp` (venv at `venv/`)
+- Backend: Thanos at `https://thanos.app.int.scylla.cloud` (multi-cluster, no token needed when on WARP)
+- Tools: PromQL instant/range queries, range summaries, anomaly-window detection, enriched metrics catalog (semantic roles, problem mappings), cluster profile, time-window resolution, Grafana dashboard creation.
+- Add `{cluster="<id>"}` to PromQL to scope to a single cluster (Thanos mode is multi-cluster).
+- Update: `bash ~/Development/prometheus-mcp/local-mcp/install_prometheus_mcp.sh update`.
+
+### `victorialogs` — VictoriaLogs / LogsQL
+
+- HTTP MCP endpoint: `https://victoria-logs-mcp.app.int.scylla.cloud/mcp`
+- Tools: LogsQL queries, hits over time buckets, field/stream-field names & values, facets, stats queries (Prometheus-compatible), streams, stream IDs, flags.
+- Server identifies itself as `VictoriaLogs v1.9.0`. The server's own instructions tell agents to consult its Documentation tool for `how/tell/where`-style questions and to keep queries narrow (some are query-heavy).
+
+### Typical investigation pattern
+
+For incidents/postmortems, combine the two: use `prometheus-mcp` to find anomaly windows and metric breakdowns, then pivot into `victorialogs` with the same time range to read the actual log lines. Both servers should be used together, not in isolation.
+
 ## Creating a Pull Request (ScyllaDB)
 
 ### Checklist
