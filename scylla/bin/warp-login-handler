@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# warp-login-handler — invoked by the com.cloudflare.warp:// URL scheme handler.
+# Runs warp-login --token <url>, logs everything, and shows a desktop notification.
+set -u
+URL="${1:-}"
+LOG="${XDG_STATE_HOME:-$HOME/.local/state}/warp-login.log"
+mkdir -p "$(dirname "$LOG")"
+
+notify() {
+  local urgency="$1" title="$2" body="$3"
+  command -v notify-send >/dev/null && notify-send -u "$urgency" -a "Cloudflare WARP" "$title" "$body" || true
+}
+
+{
+  echo
+  echo "===== $(date -Is) ====="
+  echo "URL: $URL"
+} >>"$LOG"
+
+if [[ -z "$URL" ]]; then
+  echo "no URL passed" >>"$LOG"
+  notify critical "WARP enrollment failed" "Handler invoked without a URL. See $LOG"
+  exit 1
+fi
+
+# Run warp-login non-interactively with the token from the URL.
+if "$HOME/.local/bin/warp-login" --token "$URL" >>"$LOG" 2>&1; then
+  notify normal "WARP connected" "Registered + connected via scylla-cloud-prod VNet."
+else
+  rc=$?
+  notify critical "WARP enrollment failed" "warp-login exited $rc. Tail: $(tail -3 "$LOG" | tr '\n' ' ')"
+  exit "$rc"
+fi
+

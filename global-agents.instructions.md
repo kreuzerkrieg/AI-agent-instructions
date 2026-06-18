@@ -89,6 +89,7 @@ Project-specific instructions are organized under subdirectories of this config 
 | `scylla/bin/setup-scylla-workspace` | Provisioning a new or existing ScyllaDB clone | Installs `.copilotignore`, CLion excludeRoots, git exclude |
 | `scylla/warp-setup.md` | Installing/using Cloudflare WARP Zero Trust on Fedora | TL;DR + `warp-login` automation + Fedora-specific install (`webkit2gtk3` nodeps workaround) + lessons learned |
 | `scylla/bin/warp-login` | Daily WARP enrollment automation | Symlink into `~/.local/bin/`. Opens enrollment URL, polls clipboard for the token, registers, connects, selects `scylla-cloud-prod` VNet |
+| `scylla/bin/warp-login-handler` | Browser-button → `warp-login --token` glue | Symlink into `~/.local/bin/`. Invoked by the user-level `~/.local/share/applications/com.cloudflare.warp.desktop` MIME handler when the blue "Open Cloudflare WARP" button is clicked. Logs to `~/.local/state/warp-login.log` and notifies via `notify-send` |
 
 **Always read the relevant file at the start of a session** using `read_file` — do not rely on memory from prior conversations. If a file does not exist yet, notify the user so it can be created.
 
