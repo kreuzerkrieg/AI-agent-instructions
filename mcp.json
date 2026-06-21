@@ -146,7 +146,7 @@
       "command": "/usr/bin/python3",
       "args": [
         "-u",
-        "/home/ernest.zaslavsky/Development/scylladb/tools/clion_codenav_mcp/run_server.py"
+        "/home/ernest.zaslavsky/Development/clion-code-nav/mcp_bridge/run_server.py"
       ],
       "env": {
         "CODENAV_BASE_URL": "http://127.0.0.1:37100",
