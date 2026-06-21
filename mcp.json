@@ -140,6 +140,20 @@
       "type": "http",
       "url": "https://victoria-logs-mcp.app.int.scylla.cloud/mcp",
       "enabled": true
+    },
+    "clion-codenav": {
+      "type": "stdio",
+      "command": "python3",
+      "args": [
+        "-m",
+        "clion_codenav_mcp.server"
+      ],
+      "cwd": "/home/ernest.zaslavsky/Development/scylladb/tools/clion_codenav_mcp",
+      "env": {
+        "PYTHONPATH": "/home/ernest.zaslavsky/Development/scylladb/tools/clion_codenav_mcp/src",
+        "CODENAV_BASE_URL": "http://127.0.0.1:37100"
+      },
+      "enabled": true
     }
   }
 }
