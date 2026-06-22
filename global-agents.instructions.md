@@ -806,6 +806,10 @@ This section is a **staging area**, not a permanent home. Periodically review it
 
 <!-- All prior entries were graduated into standing sections on 2026-05-24. The section starts fresh below. -->
 
+### Prefer CLion CodeNav MCP over grep/read for C++ code exploration (2026-06-22)
+When asked to build a call graph, find usages, or trace callers in a C++ codebase open in CLion, I defaulted to `grep_search` and `read_file` — spending 3–5× more tokens than necessary by reading raw file content to find function boundaries and call sites.
+**Correct approach:** For any code navigation task in a CLion project, **always `activate_clion_codenav_tools` first**. Then use `clion_codenav_light_index` (file-local symbol outline) + `clion_codenav_usages` (find all call sites by position) instead of grep. `usages` returns compact `{uri, line, col}` tuples — orders of magnitude cheaper than reading file chunks. Only fall back to grep/read when the CLion index clearly doesn't cover a file.
+
 ### When to use `read_file` vs `cat` (2026-06-10)
 I used `cat` to read a file that is always loaded by `read_file`, missing the deduplication and structured output that `read_file` provides.
 **Correct approach:** Prefer `read_file` for loading any file that is also used by `insert_edit_into_file` or `replace_string_in_file`. It avoids duplicate content and ensures consistent formatting. Use `cat` only for one-off reads of files not involved in edits.
