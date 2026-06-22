@@ -806,9 +806,10 @@ This section is a **staging area**, not a permanent home. Periodically review it
 
 <!-- All prior entries were graduated into standing sections on 2026-05-24. The section starts fresh below. -->
 
-### Prefer CLion CodeNav MCP over grep/read for C++ code exploration (2026-06-22)
-When asked to build a call graph, find usages, or trace callers in a C++ codebase open in CLion, I defaulted to `grep_search` and `read_file` — spending 3–5× more tokens than necessary by reading raw file content to find function boundaries and call sites.
-**Correct approach:** For any code navigation task in a CLion project, **always `activate_clion_codenav_tools` first**. Then use `clion_codenav_light_index` (file-local symbol outline) + `clion_codenav_usages` (find all call sites by position) instead of grep. `usages` returns compact `{uri, line, col}` tuples — orders of magnitude cheaper than reading file chunks. Only fall back to grep/read when the CLion index clearly doesn't cover a file.
+### CLion CodeNav MCP: use it for accuracy, not token savings (2026-06-22)
+When building a call graph in a CLion C++ project, I assumed MCP would be cheaper in tokens than grep/read. Measured reality was the opposite: MCP cost ~207 tokens vs ~114 for grep/read_file. `clion_codenav_light_index` dumps all symbols in a file (60–100 entries) even when only one is needed, and a single misfired `usages` call (pointing at the wrong token) returned 101 irrelevant results. `grep_search` is surgical — it returns only matching lines.
+**Correct framing:** Use CLion CodeNav MCP for **accuracy and semantic correctness** (verified symbol identity, cross-file usages, no false positives from name collisions), not for token efficiency. Targeted `grep_search` + `read_file` is often cheaper in tokens. The MCP advantage is that it cannot miss a call site due to a naming variant, and it doesn't require reading file content to identify enclosing function boundaries.
+**Practical guidance:** For a quick "where is this called?" with a unique symbol name, `grep_search` wins on cost. For ambiguous names, virtual dispatch, or when you need the full verified call graph with zero false positives, reach for `clion_codenav_usages`.
 
 ### When to use `read_file` vs `cat` (2026-06-10)
 I used `cat` to read a file that is always loaded by `read_file`, missing the deduplication and structured output that `read_file` provides.
