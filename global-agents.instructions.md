@@ -64,6 +64,7 @@
    |-------------------|--------------|
    | `scylladb/scylladb` | `~/.config/github-copilot/intellij/scylla/scylladb-instructions.md` |
    | `scylla-cluster-tests` | `~/.config/github-copilot/intellij/scylla/sct-instructions.md` |
+   | `clion-code-nav` | `~/.config/github-copilot/intellij/clion-code-nav/clion-code-nav-instructions.md` |
 
 3. **Only then** begin working on the user's request.
 

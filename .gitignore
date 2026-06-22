@@ -17,6 +17,8 @@
 !scylla/**
 !personal/
 !personal/**
+!clion-code-nav/
+!clion-code-nav/**
 
 # Whitelist scratch templates (canonical sources seeded into the CLion scratches dir)
 !scratch/
