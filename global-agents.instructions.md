@@ -180,12 +180,7 @@ Also check **[cursor.directory](https://cursor.directory/)** — a community-cur
 
 ## Markdown Conversion — Tool Routing
 
-Two markdown-conversion MCP servers are configured, and **both are kept on purpose**. They share the same underlying engine (`markdownify-mcp` wraps Microsoft's `markitdown`), so output is identical — route by **input type**, which matches each server's natural input model:
-
-- **Local files** (PDF, DOCX, XLSX, PPTX, images, audio, local `.md`) → use **`markdownify-mcp`** tools (`pdf-to-markdown`, `docx-to-markdown`, `image-to-markdown`, `audio-to-markdown`, `get-markdown-file`, etc.). These take filesystem paths. It also owns the extras with no `markitdown` equivalent: `youtube-to-markdown`, `bing-search-to-markdown`, `git-repo-to-markdown`.
-- **URIs** (`http:`, `https:`, `data:`) → use **`microsoft/markitdown`**'s `convert_to_markdown(uri)`. It's the lighter, official, URI-oriented path for web pages and remote/data resources.
-
-Rule of thumb: **path on disk → markdownify-mcp; URL/URI → markitdown.**
+Use **`microsoft/markitdown`**'s `convert_to_markdown` tool for all markdown conversion needs. It accepts both local file paths and URIs (http:, https:, data:) and handles PDF, DOCX, XLSX, PPTX, images, audio, and web pages.
 
 ---
 
