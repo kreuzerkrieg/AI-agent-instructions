@@ -132,7 +132,7 @@ fabricate it.
 | **VictoriaLogs** | `victorialogs` MCP server (LogsQL). Scope with `cluster:"#NNNN"` and time range | **Scylla-side** logs from cluster nodes — `system.log` / journal from `scylla-server`, `scylla-manager-agent`, `scylla-node-exporter`, `scylla-manager`. Error stacks, streaming/repair messages, config dumps at startup, DC/rack topology from log context. **Also holds** control-plane / cloud-orchestration logs. | The customer's own application-side logs (their microservices that query Scylla — those live in the customer's env, we never see them). Anything metric-shaped — use Prometheus. Broad `_time` queries with no filter are expensive |
 | **Grafana dashboards** | Browser URL: `https://graphs.backoffice.prd.dbaas.scyop.net/cluster/<ID>/monitor/d/<dashboard>/...` | Visual confirmation, sharing a link with the user | Direct programmatic reads — we can't scrape panels. **Use the underlying PromQL via `prometheus-mcp` instead**, then optionally give the user the panel URL |
 | **Backtrace symbolication** | `scylla-backtrace` MCP + `https://backtrace.scylladb.com/api/backtrace` | Turning raw addresses in crash logs into function names + source lines | Anything that isn't a backtrace |
-| **ScyllaDB source** | Local clone `~/Development/scylladb` + `clion-codenav` MCP | Confirming what a metric name means, what an error message string is thrown from, what a config flag actually gates | Runtime state of a live cluster |
+| **ScyllaDB source** (OSS + enterprise) | `scylla-backtrace` MCP + `scylla_build_tools` (`lookup_build_id` / `search_builds`) to resolve build → commit; GitHub MCP `get_file_contents(ref=<tag>)` for `scylladb/scylladb` (OSS) or `scylladb/scylla-enterprise` (private); local clone + `clion-codenav` **only when its checked-out ref matches the customer's version** | Confirming what a metric name means, what an error string is thrown from, what a config flag actually gates — **at the specific version the cluster runs** (see §6 Step 6) | Runtime state of a live cluster. Also: default-branch/master source is misleading when the cluster runs an older enterprise release |
 | **GitHub / Jira / Confluence** | GitHub MCP, Atlassian MCP | Linked issues, known-bug lookups, related PRs, past postmortems | Live cluster state |
 
 **Rule of thumb:** if the question is *"what is happening right now / did
@@ -339,11 +339,75 @@ time range with keyword filters (`error`, `warn`, subsystem name).
 **Always** narrow by both cluster and time — unbounded LogsQL queries are
 slow and hit rate limits.
 
-### Step 6 — Verify against source
-If a specific error string or metric behaviour drives the conclusion,
-confirm what emits it: `grep_search` the local `scylladb` clone or use
-`clion-codenav` to find the enclosing function. Don't infer from the
-name alone.
+### Step 6 — Verify against source **at the exact version the customer runs**
+If a specific error string, metric behaviour, or config default drives
+the conclusion, confirm what emits it — but **never against `master` of
+the local checkout by default**. Customers run enterprise releases
+(2024.1.x, 2025.1.x, …), older OSS branches (6.0.x, 6.2.x, …), or
+occasionally a private build. The behaviour you're chasing may not
+exist there, or may exist with different semantics.
+
+**Procedure:**
+
+1. **Find the version the cluster actually runs.** Any of:
+
+   ```promql
+   # Version + build id from Prometheus (label values)
+   scylla_scylla_build_info{cluster="#NNNN"}
+   ```
+
+   or the value of `scylla_versions` / a startup line in VictoriaLogs
+   (`Scylla version 2025.1.9-... with build-id abc123...`), or on an
+   SSH'd node `scylla --version` / `nodetool version`.
+
+2. **Resolve `build_id` → git commit** with the ScyllaDB build MCP
+   (category: `activate_scylla_build_tools`):
+
+   ```
+   lookup_build_id(build_id="<40-hex>")   → package URL, parent build metadata (incl. git SHA)
+   search_builds(release="2025.1.9", ...) → find builds by release string
+   ```
+
+   This tells you the exact commit/tag the running binary was built
+   from.
+
+3. **Read source at that commit** — pick the cheapest tool for the job:
+
+   - **GitHub MCP** `get_file_contents(owner, repo, path, ref=<tag|sha|branch>)`
+     — no checkout needed, works on private `scylladb/scylla-enterprise`
+     too. Best for reading a specific known file.
+   - **GitHub MCP** `search_code(q="...", ref not settable)` — repo-wide
+     grep, but only searches the default branch. **Do not use it as
+     version-specific verification.**
+   - **Local checkout at the right ref** — only when doing heavy
+     multi-file navigation. Fetch and checkout the tag/branch:
+     `git fetch --tags && git checkout <tag>`. Note that
+     `~/Development/scylladb` is OSS only; enterprise sources need a
+     separate clone of `scylladb/scylla-enterprise`.
+   - **`clion-codenav` MCP** — semantic navigation, but **only against
+     the currently-open workspace**. Only useful if the workspace's
+     current branch matches the customer's version. Otherwise misleading.
+
+4. **Branch-name conventions** (as of writing — verify with
+   `list_branches` if unsure):
+
+   | Product | Repo | Branch pattern |
+   |---|---|---|
+   | Enterprise | `scylladb/scylla-enterprise` (private) | `enterprise-2024.1`, `enterprise-2025.1`, tags like `enterprise-2025.1.9` |
+   | OSS | `scylladb/scylladb` | `branch-6.0`, `branch-6.2`, tags like `scylla-6.2.3` |
+   | Manager | `scylladb/scylla-manager` | `branch-3.x` |
+
+5. **State the version in the finding.** Any claim from source must
+   name the ref: *"In `scylladb/scylla-enterprise` at tag
+   `enterprise-2025.1.9`, `stream_manager.cc:344` throws …"*. A
+   version-less "the code does X" claim is worthless in a customer
+   investigation.
+
+**Anti-pattern (from prior sessions):** grepping `~/Development/scylladb`
+(OSS master) for an error string, finding it, and citing line numbers —
+when the customer runs enterprise 2024.1. The file may not exist at all
+in that version, may be at a different path, or the surrounding logic
+may differ.
 
 ### Step 7 — Report
 Present verified facts with the query/tool that produced them. Any
@@ -413,6 +477,15 @@ Operations) does not show up there** — cross-check with
 VictoriaLogs across all time × all clusters is slow. Always include
 `cluster:"#NNNN"` and `_time:[start, end]` (or the tool's native
 range parameters).
+
+### G. "Grep master, cite line numbers"
+The customer runs a specific released version (enterprise-2025.1.9,
+OSS 6.2.3, …). Grepping `~/Development/scylladb` at `master` and
+quoting line numbers is misleading — the code may not exist there, be
+at a different path, or have different logic. Always: (1) find the
+customer's build_id via Prometheus / log / `nodetool version`,
+(2) resolve to a commit via `lookup_build_id`, (3) read the file at
+that ref via GitHub MCP `get_file_contents`. See §6 Step 6.
 
 ---
 
