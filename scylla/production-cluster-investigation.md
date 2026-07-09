@@ -32,6 +32,8 @@ motivated it.
 
 ## 1. Access Prerequisites
 
+### 1.1 WARP + scylla-cloud-prod VNet (always required)
+
 Every production data source below is behind Cloudflare Zero Trust and
 requires **WARP connected with the `scylla-cloud-prod` VNet**:
 
@@ -43,12 +45,79 @@ warp-cli vnet 6666a685-9b3b-4f0c-bd18-36e0ae1c987d
 For daily use: `warp-login` script (see `scylla/warp-setup.md`).
 Symptom of missing VNet: MCP tool returns TLS/connection error or 403.
 
-**What we do NOT have access to:**
-- SSH to any customer node — no direct `nodetool`, `du`, `ls`,
-  `journalctl`, filesystem inspection.
-- The customer's application logs.
-- Zendesk tickets (no MCP yet — user must paste content).
-- Any credential belonging to the customer.
+### 1.2 StrongDM (SSH to nodes)
+
+**Direct SSH into customer/production Scylla nodes is possible via
+StrongDM** (SDM). This is the *only* sanctioned path — there is no
+public bastion IP, no ssh-key-in-authorized_keys mechanism.
+
+Confluence reference:
+<https://scylladb.atlassian.net/wiki/spaces/RND/pages/42238619>
+
+Prerequisites (one-time):
+- Email `it@scylladb.com` to be added to the correct Okta group:
+  - `SDMSupport-Prod` — production
+  - `SDMSupport-Sandbox` — lab / staging
+- Install the StrongDM app + CLI. Follow the **EU** installation guide
+  (not US). Download page: <https://app.eu.strongdm.com/app/downloads>
+- Set `export SDM_DOMAIN=eu.strongdm.com` in your shell profile.
+- WARP must be connected before any `sdm` command.
+
+Daily flow (agent-runnable):
+
+```bash
+# 1. Log in (opens Okta in browser)
+sdm login --email "$USER@scylladb.com"
+
+# 2. List nodes for a specific cluster (cluster id 100 in this example)
+sdm access catalog \
+  --filter 'tag:Environment=prd' \
+  --filter 'name:"/c:100/*"' \
+  --timeout 120s
+
+# 3. Request just-in-time access to a node — reason is mandatory
+sdm access to "/c:100/r:scylla/<instance-id>/u:support" \
+  --reason "investigating <ticket>" --duration 2h
+
+# 4. SSH once approval arrives
+sdm ssh "/c:100/r:scylla/<instance-id>/u:support"
+```
+
+Resource-name grammar `/c:<cluster>/r:<role>/<instance-id>/u:<user>`:
+- `r:` is `scylla`, `manager`, or `monitor`
+- `u:` is almost always `support`
+
+Get CQL credentials for a cluster (helper host, not the cluster itself):
+
+```bash
+sdm access to /prd/devops/details/u:support --reason "cluster inventory" --duration 1h
+sdm ssh /prd/devops/details/u:support -- "show --cluster-id $CLUSTER_ID"
+```
+
+Copy files:
+- **Host → node:** `base64 -i <file> | sdm ssh ... "base64 -d > /home/support/<file>"`
+- **Node → host:** use <https://upload.scylladb.com/> (see the "Handling
+  customer files" runbook), not `scp`.
+
+Common issues:
+- `Bad server host key: Invalid key length` → add `RSAMinSize 1024` to
+  `~/.ssh/config` or pass `-o RSAMinSize=1024`.
+- `connection refused` → `sdm ready`; check `is_linked=true`; try
+  `telnet strongdm-us-east-1.siren.scylla.cloud 5000`.
+- Missing resource → wrong Okta group; email IT.
+
+### 1.3 What we STILL do NOT have
+
+Even with WARP + StrongDM:
+- **Customer application-side logs** — the customer's own microservices
+  that *drive* Scylla live in the customer's environment. VictoriaLogs
+  only carries Scylla's *own* logs (see §2).
+- **Zendesk tickets** — no MCP; the user must paste ticket content, or
+  use the Zendesk URL in a browser.
+- **Customer credentials** — CQL creds for support work come from the
+  devops helper via SDM (above), not from the customer.
+- **Anything on a non-cloud (self-hosted) cluster** — StrongDM only
+  covers ScyllaDB Cloud / dbaas.
 
 Anything requiring the above must be requested from the user; do not
 fabricate it.
@@ -60,7 +129,7 @@ fabricate it.
 | Source | How to reach it | Good for | NOT for |
 |---|---|---|---|
 | **Prometheus / Thanos** | `prometheus-mcp` server (Thanos backend, multi-cluster). Scope with `{cluster="#NNNN"}` | Any metric — CPU, disk, memory, per-shard, per-keyspace, per-table, streaming, repair, compaction, cache, IO queue, CQL rates, errors | Log messages, config values, schema, per-request tracing |
-| **VictoriaLogs** | `victorialogs` MCP server (LogsQL). Scope with `cluster:"#NNNN"` and time range | Actual `system.log` / journal lines, error stacks, streaming/repair messages, config dumps at startup, DC/rack topology from log context | Anything metric-shaped — use Prometheus instead. Broad `_time` queries with no filter can be very expensive |
+| **VictoriaLogs** | `victorialogs` MCP server (LogsQL). Scope with `cluster:"#NNNN"` and time range | **Scylla-side** logs from cluster nodes — `system.log` / journal from `scylla-server`, `scylla-manager-agent`, `scylla-node-exporter`, `scylla-manager`. Error stacks, streaming/repair messages, config dumps at startup, DC/rack topology from log context. **Also holds** control-plane / cloud-orchestration logs. | The customer's own application-side logs (their microservices that query Scylla — those live in the customer's env, we never see them). Anything metric-shaped — use Prometheus. Broad `_time` queries with no filter are expensive |
 | **Grafana dashboards** | Browser URL: `https://graphs.backoffice.prd.dbaas.scyop.net/cluster/<ID>/monitor/d/<dashboard>/...` | Visual confirmation, sharing a link with the user | Direct programmatic reads — we can't scrape panels. **Use the underlying PromQL via `prometheus-mcp` instead**, then optionally give the user the panel URL |
 | **Backtrace symbolication** | `scylla-backtrace` MCP + `https://backtrace.scylladb.com/api/backtrace` | Turning raw addresses in crash logs into function names + source lines | Anything that isn't a backtrace |
 | **ScyllaDB source** | Local clone `~/Development/scylladb` + `clion-codenav` MCP | Confirming what a metric name means, what an error message string is thrown from, what a config flag actually gates | Runtime state of a live cluster |
@@ -68,11 +137,155 @@ fabricate it.
 
 **Rule of thumb:** if the question is *"what is happening right now / did
 happen at time T"*, the answer lives in Prometheus and VictoriaLogs, and
-nowhere else you can reach.
+nowhere else you can reach — **unless** you need on-node state (files on
+disk, `nodetool` output, live core file, kernel dmesg), in which case
+StrongDM SSH (§1.2) is the only path.
 
 ---
 
-## 3. Finding the Cluster
+## 2b. What to Run Once You're SSH'd Into a Node
+
+Everything below assumes `sdm ssh /c:<id>/r:scylla/<inst>/u:support`.
+The `support` user has read access + can run `nodetool`; it is not root.
+
+### Filesystem / disk (the class of questions VictoriaLogs+Prometheus can't answer)
+
+```bash
+# Root of the drift — what does df say vs Scylla metrics?
+df -h /var/lib/scylla
+du -xh --max-depth=1 /var/lib/scylla/ | sort -h
+
+# Snapshots (biggest source of `du` vs Prometheus drift)
+nodetool listsnapshots
+
+# Coredumps — often bind-mounted on the same volume; a single one can be 10s of GiB
+ls -lh /var/lib/systemd/coredump/ 2>/dev/null
+coredumpctl list --no-pager 2>/dev/null | tail -20
+
+# Hints on disk (the Scylla metric is in-memory only, not on-disk size)
+du -sh /var/lib/scylla/hints /var/lib/scylla/view_hints 2>/dev/null
+
+# Backup staging
+du -sh /var/lib/scylla/data/*/*/upload /var/lib/scylla/data/*/*/staging 2>/dev/null
+
+# Orphaned tmp sstables from crashed compactions
+find /var/lib/scylla/data -maxdepth 4 \( -name '*-tmp-*' -o -name '*.tmp' \) | head
+```
+
+See `scylla/disk-usage-accounting.md` for full reconciliation.
+
+### Scylla runtime state
+
+```bash
+nodetool status                   # DC / rack / up-down / ownership
+nodetool statusgossip
+nodetool describecluster
+nodetool tablestats <ks>.<table>  # per-table live/total, tombstones, sstable count
+nodetool tpstats                  # per-scheduling-group queues (older Scylla)
+nodetool netstats                 # legacy streaming ONLY — RBNO does NOT appear here
+nodetool compactionstats -H       # active compactions
+nodetool cfhistograms <ks>.<table>
+```
+
+### Logs on the node
+
+```bash
+journalctl -u scylla-server -n 1000 --no-pager
+journalctl -u scylla-server --since "1 hour ago" --no-pager
+journalctl -u scylla-manager-agent -n 500 --no-pager
+
+# Older archived logs
+ls -la /var/log/scylla/
+zcat /var/log/scylla/scylla.log-*.gz | grep -i "error\|backtrace"
+```
+
+Prefer VictoriaLogs for cross-node time-range queries; use `journalctl`
+on-node only when VictoriaLogs is missing recent lines (rare) or when
+correlating with `dmesg` / kernel-side events.
+
+### Kernel / OS
+
+```bash
+dmesg -T | tail -100                # oomkills, XFS errors, disk timeouts
+uname -a
+cat /etc/os-release
+top -bn1 -o %CPU | head -30
+iostat -xm 2 3                      # if sysstat installed
+```
+
+### Config
+
+```bash
+sudo cat /etc/scylla/scylla.yaml
+sudo cat /etc/scylla.d/*.conf 2>/dev/null    # perftune, io.conf, cpuset.conf
+```
+
+### Copying artifacts off the node
+
+- Small text (yaml, log excerpt): `base64` roundtrip through `sdm ssh`.
+- Anything binary or large (coredump, sstable): use
+  <https://upload.scylladb.com/> per the "Handling customer files"
+  runbook. Never `scp` directly.
+
+---
+
+## 4. On-Call Context
+
+When the user is on-call, the origin of the request shapes the workflow.
+
+### Two independent on-call rotations
+
+| Rotation | Owner | Scope | Confluence |
+|---|---|---|---|
+| **Core Engineer On-Call** | R&D / kernel | Cluster is unresponsive / down, node crashes, correctness bugs, backtrace investigation, performance regressions in the DB itself | <https://scylladb.atlassian.net/wiki/spaces/RND/pages/20512806> |
+| **Cloud On-Call** | Cloud R&D | Provisioning failures, scaling failures, VPC / PrivateLink / connectivity, backoffice, siren, control-plane | <https://scylladb.atlassian.net/wiki/spaces/RND/pages/359596587> |
+
+Tier structure (both rotations):
+- **Tier 1** — first responder (rotating).
+- **Tier 2** — R&D directors (weekly rotation, Mon 09:00 Jerusalem for
+  Core / 09:00 CET for Cloud).
+- **Tier 3** — CTO (Core only; only if all else fails).
+
+### Where pages come from
+
+- **DataDog On-Call** manages shifts and paging (phone, SMS, mobile
+  push, email). Log in via Okta.
+- **Slack war rooms** — join the channel named in the page. General:
+  **`#0_p1_war_room`** (Cloud) — every incident gets its own
+  `#inc-zd<ticket>-<customer>-<summary>` channel.
+- **Jira** — page title usually includes the ticket key
+  (`CUSTOMER-NNN`, `SRE-NNN`).
+- **Zendesk** — the customer-facing ticket ID (`ZD-<NNNNN>`); the CX
+  focal point owns the customer comms, not us.
+
+### First-15-minutes checklist (for the agent to help with)
+
+1. Extract from the page: **cluster ID, ticket key, Slack channel, CX
+   focal point**. If any are missing, ask before doing analysis.
+2. `cluster_profile(cluster_id="#NNNN")` to confirm the cluster exists
+   and see topology.
+3. Read the Jira ticket for prior context — `mcp_atlassian_fetch` with
+   the issue ARI. Existing bugs, past investigations, related tickets.
+4. Grep VictoriaLogs for `error`/`warn` in the incident window on that
+   cluster.
+5. Symptom metric per §6 workflow.
+6. Post findings into the incident's Slack channel (user posts; agent
+   drafts). Cite queries.
+
+### What NOT to do
+
+- **Don't invent ticket IDs or cluster IDs to fill in a template.** Real
+  IDs collide with real tickets (see 2026-07-08 lesson).
+- **Don't ping SMEs or Tier 2 without the user's OK** — escalation is
+  the user's decision, not the agent's.
+- **Don't apply fixes, restart services, or change config from an SSH
+  session without explicit user confirmation for that specific action.**
+  Investigation is read-mostly; mutations are the on-call engineer's
+  call.
+
+---
+
+## 5. Finding the Cluster
 
 The user will usually give one of:
 - **Cluster ID** — `#6958`, `6958`. Use as `{cluster="#6958"}` in PromQL
@@ -265,4 +478,9 @@ between filesystem view and Scylla-reported bytes, defer to
 - The LSA-vs-disk panel confusion
 - Multi-mount and per-shard summing traps
 - A concrete PromQL recipe for `du` vs Prometheus reconciliation
+
+
+
+
+
 
