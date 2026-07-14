@@ -804,6 +804,18 @@ This section is a **staging area**, not a permanent home. Periodically review it
 
 <!-- All prior entries were graduated into standing sections on 2026-05-24. The section starts fresh below. -->
 
+### After changing a public helper's signature, grep the whole repo for its name (2026-07-14)
+While migrating `test/cluster/object_store/test_backup.py` I changed `create_cluster` (plain async function → `@asynccontextmanager` with different args/return) and `do_test_streaming_scopes` (added 2 required positional args). Both are imported by *other* cluster tests (`test/cluster/test_refresh.py`, `test/cluster/test_snapshot_with_tablets.py`) — a cross-module dependency I never checked because I focused on callers within the same file. The full cluster suite came back with two `TypeError: missing X required positional arguments` regressions.
+**Correct approach:** whenever changing a *public* helper (any top-level function, class, or context manager in a module that other files might `from X import Y`), do a workspace-wide grep for the symbol name **before** the migration lands, not after:
+```bash
+grep -rn "\\b<name>\\b" --include='*.py' | grep -v <owning-file>
+```
+Options when external callers are found:
+- Keep the old signature intact and introduce a new name for the new shape (what I ended up doing: renamed the CM to `_create_cluster_scope`, kept the plain-function `create_cluster` for external callers).
+- Or make the new params optional/defaulted so old call sites still work.
+- Or migrate all callers in the same commit series.
+This is the static-analysis counterpart of the 2026-06-03 polymorphic-dispatch lesson.
+
 ### `py_compile` does not catch missing imports (2026-07-14)
 While migrating a test to use `make_cluster_with_object_storage`, I edited a scratch copy with `replace_string_in_file` to add `from test.cluster.object_store.conftest import make_cluster_with_object_storage`. The tool reported success and my `python3 -m py_compile` on the scratch file passed. Committed. The user then ran the test and got `NameError: name 'make_cluster_with_object_storage' is not defined` — the import edit had silently not landed (probably because the anchor for `replace_string_in_file` matched a slightly different byte sequence than I passed in).
 **Correct approach:** `py_compile` only checks syntax, never name resolution or import correctness. For any edit that adds/uses an imported symbol, verify after every edit with an explicit `grep` for both the import line AND the use site — do not trust the tool's success message alone. Same rule as the 2026-06-16 lesson about `insert_edit_into_file` / `replace_string_in_file` silently dropping structural edits, extended to imports specifically. A cheap standalone Python check when unsure:
