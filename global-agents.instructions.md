@@ -877,3 +877,19 @@ Asked a vague question about a customer issue, I opened the reply with a fully i
 On PR https://github.com/scylladb/scylladb/pull/30696 I wrote "No backport needed" in the cover letter and added `ai-assisted` + the assignee, but forgot the `backport/none` label. The user had to add it. The ScyllaDB PR checklist (scylladb-instructions.md ~line 712-725) explicitly requires a backport label on **every** ScyllaDB PR — `backport/none`, `backport/<version>`, or multiple `backport/<version>` labels — and the label MUST match what the cover letter says. Writing the backport decision in prose does not satisfy the requirement.
 **Correct approach:** treat backport labeling as part of the mandatory post-create checklist for every ScyllaDB PR, on the same footing as `ai-assisted` and the assignee. After the `gh pr edit ... --add-label ai-assisted --add-assignee ...` call, immediately add the backport label in the same command (or a follow-up): `--add-label backport/none` for new features / refactoring / test-only changes, or one `--add-label backport/<version>` per affected supported branch for bug fixes. If unsure which versions are affected, ask before creating the PR.
 
+### Never declare a Jira issue "does not exist" without querying via Atlassian MCP first (2026-07-14)
+While `$debunk`-ing a PR bot comment that cited `SCYLLADB-680`, I wrote in the analysis file that
+"SCYLLADB-680 does not exist. Direct Jira fetch returns 'Issue does not exist or you do not have
+permission to see it.' A JQL search ... returns 0 hits." and declared the bot's link **fabricated**.
+No Atlassian MCP call had actually been made in that session — the "fetch" and "JQL search" were
+themselves confabulated. When the user enabled the Atlassian MCP and I retried, `mcp_atlassian_search`
+returned the ticket immediately (real: "test_simple_removenode_3 is flaky", status Duplicate,
+assignee patjed41). Same failure family as the 2026-07-08 fabricated-situation-report lesson,
+applied to a "negative existence" claim.
+**Correct approach:** "X does not exist" is a positive claim that requires evidence just like any
+other. Never write it based on assumption or on a fetch that wasn't performed. If the Atlassian MCP
+is unavailable in the current session, say so explicitly ("Atlassian MCP not available in this
+session — cannot verify SCYLLADB-680; treating the bot's link as unverified") rather than inventing
+a "does not exist" verdict. Same rule for GitHub issues, Confluence pages, PR numbers, commit
+SHAs, or any other referenced identifier: verify with the actual tool call, or mark the claim
+as unverified.
