@@ -804,6 +804,14 @@ This section is a **staging area**, not a permanent home. Periodically review it
 
 <!-- All prior entries were graduated into standing sections on 2026-05-24. The section starts fresh below. -->
 
+### `py_compile` does not catch missing imports (2026-07-14)
+While migrating a test to use `make_cluster_with_object_storage`, I edited a scratch copy with `replace_string_in_file` to add `from test.cluster.object_store.conftest import make_cluster_with_object_storage`. The tool reported success and my `python3 -m py_compile` on the scratch file passed. Committed. The user then ran the test and got `NameError: name 'make_cluster_with_object_storage' is not defined` — the import edit had silently not landed (probably because the anchor for `replace_string_in_file` matched a slightly different byte sequence than I passed in).
+**Correct approach:** `py_compile` only checks syntax, never name resolution or import correctness. For any edit that adds/uses an imported symbol, verify after every edit with an explicit `grep` for both the import line AND the use site — do not trust the tool's success message alone. Same rule as the 2026-06-16 lesson about `insert_edit_into_file` / `replace_string_in_file` silently dropping structural edits, extended to imports specifically. A cheap standalone Python check when unsure:
+```python
+python3 -c "import ast; t=ast.parse(open('<file>').read()); print(sorted({a.name for n in ast.walk(t) if isinstance(n, ast.ImportFrom) for a in n.names}))"
+```
+Prints all `from X import Y` targets — grep it for what you expected to add.
+
 ### CLion CodeNav MCP: use it for accuracy, not token savings (2026-06-22)
 When building a call graph in a CLion C++ project, I assumed MCP would be cheaper in tokens than grep/read. Measured reality was the opposite: MCP cost ~207 tokens vs ~114 for grep/read_file. `clion_codenav_light_index` dumps all symbols in a file (60–100 entries) even when only one is needed, and a single misfired `usages` call (pointing at the wrong token) returned 101 irrelevant results. `grep_search` is surgical — it returns only matching lines.
 **Correct framing:** Use CLion CodeNav MCP for **accuracy and semantic correctness** (verified symbol identity, cross-file usages, no false positives from name collisions), not for token efficiency. Targeted `grep_search` + `read_file` is often cheaper in tokens. The MCP advantage is that it cannot miss a call site due to a naming variant, and it doesn't require reading file content to identify enclosing function boundaries.
