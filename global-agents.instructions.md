@@ -804,6 +804,18 @@ This section is a **staging area**, not a permanent home. Periodically review it
 
 <!-- All prior entries were graduated into standing sections on 2026-05-24. The section starts fresh below. -->
 
+### Rewriting a file on top of newer upstream: preserve every line the diff doesn't require (2026-07-16)
+When recreating a migration commit on top of a moved-upstream base (in this case `test/cluster/object_store/test_backup.py` after ~20 upstream commits), I focused only on making the fixture migration work and casually let three classes of gratuitous changes leak in:
+1. **Dropped a "narrative" comment block** (the "in this test, we: 1. upload ... 2. download ..." explanation in `test_simple_backup_and_restore`) — because I was rebuilding around the new indentation and simply didn't retype that section.
+2. **Added editorial commentary** — two-line "Start the node WITHOUT ... then live-update ..." and "Compute per-node DC/rack ..." explanatory blocks on top of my own new code, plus a 5-line docstring paragraph on `do_test_streaming_scopes` explaining the new optional `servers=None, host_ids=None` params.
+3. **Cosmetic edits in an existing helper** (`create_cluster` — the compat helper preserved for external callers) — inlined `objconf = ...create_endpoint_conf()`, removed inner spaces in `[ ... ]`, renamed unused `for s in range(...)` → `for _ in range(...)`, added a space in `return servers,host_ids`. Every single one violates minimal-diff.
+User caught (2) and (1) by asking about specific line numbers ("line 288, you removed a chunk of comment", "line 727, the same").
+**Correct approach:** when rewriting a file on top of a new upstream base, treat it as *"apply the smallest possible transformation that achieves the migration"*, not *"redo the file"*. Concrete checklist before amending:
+- `git diff upstream/master HEAD -- <file> | grep '^-.*#'` — every removed comment line must have a matching `+` (re-added, possibly with new indentation) OR belong to a deleted code block. Anything else is an accidental drop.
+- `git diff upstream/master HEAD -- <file> | grep '^+.*#' | grep -v <phrases-that-already-existed>` — added comments should only be on genuinely new code, never editorial commentary about migrated code.
+- For any *existing* helper you touch, diff it in isolation: `git show upstream/master:<file> > /tmp/orig && diff /tmp/orig <(sed -n '<start>,<end>p' <file>)` — the result should show *only* the deliberate change (e.g. a signature update), never cosmetic edits.
+- Docstring additions to functions that already existed: don't. Reviewer-requested PEP-257 docstrings apply to the *new* wrapper/factory, not to functions I only lightly modified.
+
 ### After changing a public helper's signature, grep the whole repo for its name (2026-07-14)
 While migrating `test/cluster/object_store/test_backup.py` I changed `create_cluster` (plain async function → `@asynccontextmanager` with different args/return) and `do_test_streaming_scopes` (added 2 required positional args). Both are imported by *other* cluster tests (`test/cluster/test_refresh.py`, `test/cluster/test_snapshot_with_tablets.py`) — a cross-module dependency I never checked because I focused on callers within the same file. The full cluster suite came back with two `TypeError: missing X required positional arguments` regressions.
 **Correct approach:** whenever changing a *public* helper (any top-level function, class, or context manager in a module that other files might `from X import Y`), do a workspace-wide grep for the symbol name **before** the migration lands, not after:
