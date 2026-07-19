@@ -97,9 +97,10 @@
       "url": "https://victoria-logs-mcp.app.int.scylla.cloud/mcp",
       "enabled": true
     },
-    "clion-codenav": {
-      "type": "http",
-      "url": "http://127.0.0.1:37100/mcp",
+    "jetbrains": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@jetbrains/mcp-proxy"],
       "enabled": true
     }
   }
