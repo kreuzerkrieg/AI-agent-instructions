@@ -237,7 +237,10 @@ result output. If `gitleaks` + `~/.gitleaks.toml` are installed it also writes
 
 **Cadence:** re-run any time you want to feed new conversations into
 `~/ai-history-archive/copilot-clion/` — then rebuild the search indexes (see
-next section). Roughly weekly is sensible.
+next section). Roughly weekly is sensible. **Runs are incremental** (state in
+`<OUT>/_export_state.json`): DBs whose mtime hasn't advanced are skipped, and
+sessions whose latest turn hasn't advanced are not re-rendered. Pass `--full`
+to force a complete re-export.
 
 **Secrets warning:** transcripts contain raw terminal output — expect real
 credentials (Jenkins tokens in `curl -u`, AWS STS keys, WARP JWTs, etc.).

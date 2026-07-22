@@ -32,6 +32,7 @@ Each Nitrite DB has three object repositories under
 cd ~/.config/github-copilot/intellij/copilot-history-export
 ./export_all.sh                            # writes to ~/ai-history-archive/copilot-clion/
 ./export_all.sh /path/to/out               # custom output dir
+./export_all.sh --full                     # ignore state, re-export everything
 PLUGIN_LIB=/path/to/lib ./export_all.sh    # override plugin lib dir
 ```
 
@@ -47,6 +48,22 @@ The script:
    one Markdown per session named `YYYY-MM-DD_<title-slug>_<sid8>.md`.
 5. If `gitleaks` and `~/.gitleaks.toml` are installed, scans the archive
    and writes `_secrets-scan.json` next to the transcripts.
+
+## Incremental exports
+
+State is tracked in `<OUT>/_export_state.json` with two watermarks:
+
+- `dbs[<absolute-db-path>] = mtime` — DBs whose file mtime hasn't advanced
+  are skipped (no Java dump).
+- `sessions[<session-id>] = latest_ms` — the max of `session.modifiedAt`
+  and every turn's `createdAt` / `response.createdAt`. Sessions whose
+  watermark hasn't advanced are skipped (no Markdown re-write).
+
+Markdown filenames are deterministic (`<date>_<slug>_<sid8>.md`), so a
+re-render of an existing session overwrites its file in place — no
+`_2.md` / `_3.md` accumulation.
+
+Pass `--full` to ignore state and re-export everything.
 
 ## Read-only safety
 

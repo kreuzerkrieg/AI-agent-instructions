@@ -251,10 +251,8 @@ def render_session(session: dict, turns: list[dict], out_dir: Path) -> Path:
 
     base = f"{date}_{slugify(title)}_{sid[:8]}"
     out_path = out_dir / f"{base}.md"
-    n = 1
-    while out_path.exists():
-        n += 1
-        out_path = out_dir / f"{base}_{n}.md"
+    # Deterministic filename (includes 32-bit sid prefix). Overwrite on
+    # re-render so incremental exports don't accumulate _2.md, _3.md etc.
     out_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return out_path
 
@@ -263,13 +261,77 @@ def process_dump_dir(dump_dir: Path) -> tuple[list[dict], list[dict]]:
     return load_json(dump_dir / SESSION_ENTITY), load_json(dump_dir / TURN_ENTITY)
 
 
+def _load_state(state_path: Path | None) -> dict:
+    if not state_path or not state_path.is_file():
+        return {"dbs": {}, "sessions": {}}
+    try:
+        with state_path.open("r", encoding="utf-8") as f:
+            s = json.load(f)
+        s.setdefault("dbs", {})
+        s.setdefault("sessions", {})
+        return s
+    except (OSError, json.JSONDecodeError):
+        return {"dbs": {}, "sessions": {}}
+
+
+def _save_state(state_path: Path, state: dict) -> None:
+    tmp = state_path.with_suffix(state_path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2, sort_keys=True)
+    tmp.replace(state_path)
+
+
+def _sync_db_mtimes(state: dict) -> None:
+    """Refresh mtimes for every source DB currently on disk.
+
+    The bash driver decides which DBs to *dump*; here we make sure the state
+    file that we persist reflects the current on-disk mtime for every
+    Nitrite DB so the next run's skip logic is accurate even for DBs we
+    skipped this time.
+    """
+    home = Path.home()
+    root = home / ".config" / "github-copilot"
+    if not root.is_dir():
+        return
+    for db in root.rglob("*.db"):
+        s = str(db)
+        if "/chat-agent-sessions/" not in s and "/bg-agent-sessions/" not in s:
+            continue
+        try:
+            state["dbs"][s] = int(db.stat().st_mtime)
+        except OSError:
+            pass
+
+
 def main() -> int:
-    if len(sys.argv) != 3:
-        print("usage: render_markdown.py <dumps-root> <out-dir>", file=sys.stderr)
+    args = sys.argv[1:]
+    state_path: Path | None = None
+    full = False
+    positional: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--state":
+            state_path = Path(args[i + 1]).expanduser().resolve()
+            i += 2
+        elif a == "--full":
+            full = True
+            i += 1
+        else:
+            positional.append(a)
+            i += 1
+    if len(positional) != 2:
+        print("usage: render_markdown.py <dumps-root> <out-dir> "
+              "[--state <path>] [--full]", file=sys.stderr)
         return 2
-    dumps_root = Path(sys.argv[1]).resolve()
-    out_dir = Path(sys.argv[2]).expanduser().resolve()
+
+    dumps_root = Path(positional[0]).resolve()
+    out_dir = Path(positional[1]).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    state = _load_state(state_path)
+    if full:
+        state["sessions"] = {}
 
     # Pool everything across dumps: turns and sessions can be split across DBs.
     all_sessions: dict[str, dict] = {}
@@ -286,32 +348,52 @@ def main() -> int:
     for t in all_turns:
         by_session.setdefault(t.get("sessionId", ""), []).append(t)
 
-    # Also emit stub sessions for turn.sessionId values with no session record
-    # (shouldn't happen often but ensures no turn is lost).
     for orphan_sid in set(by_session) - set(all_sessions):
         if orphan_sid:
             all_sessions[orphan_sid] = {"id": orphan_sid, "name.value": "orphaned-turns"}
 
     written: list[Path] = []
+    skipped_unchanged = 0
     empty: list[str] = []
     for sid, s in all_sessions.items():
         turns = by_session.get(sid, [])
         if not turns:
             empty.append(f"{sid}  {s.get('name.value','')}")
             continue
+        # Session watermark: use max(modifiedAt, all turn createdAt) so a
+        # freshly-added turn triggers a re-render even if the session record
+        # itself hasn't been bumped.
+        latest = max(
+            [int(s.get("modifiedAt") or 0)]
+            + [int(t.get("createdAt") or 0) for t in turns]
+            + [int(t.get("response.createdAt") or 0) for t in turns]
+        )
+        last_seen = int(state["sessions"].get(sid, 0))
+        if not full and latest and latest <= last_seen:
+            skipped_unchanged += 1
+            continue
         try:
             p = render_session(s, turns, out_dir)
             written.append(p)
+            if latest:
+                state["sessions"][sid] = latest
         except Exception as exc:  # noqa: BLE001
             print(f"WARN {sid}: {exc}", file=sys.stderr)
 
     print(f"\nWrote {len(written)} markdown files.")
+    if skipped_unchanged:
+        print(f"Skipped {skipped_unchanged} unchanged session(s) (--full to force).")
     if empty:
         (out_dir / "_sessions-without-turns.txt").write_text(
             "\n".join(sorted(empty)) + "\n", encoding="utf-8"
         )
         print(f"Skipped {len(empty)} sessions with no turns "
               f"(see {out_dir}/_sessions-without-turns.txt).")
+
+    if state_path is not None:
+        _sync_db_mtimes(state)
+        _save_state(state_path, state)
+        print(f"State written: {state_path}")
     return 0
 
 
