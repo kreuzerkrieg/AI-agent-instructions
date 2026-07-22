@@ -68,6 +68,8 @@
 
 3. **Only then** begin working on the user's request.
 
+**Trigger phrase — "suit up":** Ernest often opens a work session by saying **"suit up"** (or "suite up"). Treat it as an explicit instruction to run these mandatory first actions and get ready to work — do not ask for clarification. It is usually followed immediately by a task, code review, or a `$debunk`/`$analyze-ci` request.
+
 **Why this exists:** The agent has repeatedly failed to load project-specific instructions at session start (2026-04-30, 2026-05-03, 2026-05-04), despite having "lessons learned" entries and prose instructions about it. Burying the requirement in prose doesn't work — it must be a non-negotiable checklist at the top of the file.
 
 ---
