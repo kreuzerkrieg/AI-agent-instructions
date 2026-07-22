@@ -108,7 +108,13 @@
         "workspace-mcp",
         "--transport",
         "stdio",
-        "--single-user"
+        "--single-user",
+        "--tool-tier",
+        "core",
+        "--tools",
+        "drive",
+        "docs",
+        "sheets"
       ],
       "env": {
         "GOOGLE_CLIENT_SECRET_PATH": "/home/ernest.zaslavsky/.google_workspace_mcp/client_secret.json",
