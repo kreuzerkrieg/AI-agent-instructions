@@ -25,3 +25,11 @@
 !scratch/**
 
 !copilot-oom-prevention.md
+
+# Whitelist the Copilot history export tool (source files only — never dumps/ or *.class).
+!copilot-history-export/
+!copilot-history-export/*.java
+!copilot-history-export/*.py
+!copilot-history-export/*.sh
+!copilot-history-export/README.md
+
