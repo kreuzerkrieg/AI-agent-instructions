@@ -100,6 +100,22 @@
     "clion": {
       "url": "http://127.0.0.1:64362/sse",
       "type": "sse"
+    },
+    "google_workspace": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "workspace-mcp",
+        "--transport",
+        "stdio",
+        "--single-user"
+      ],
+      "env": {
+        "GOOGLE_CLIENT_SECRET_PATH": "/home/ernest.zaslavsky/.google_workspace_mcp/client_secret.json",
+        "GOOGLE_MCP_CREDENTIALS_DIR": "/home/ernest.zaslavsky/.google_workspace_mcp/credentials",
+        "OAUTHLIB_INSECURE_TRANSPORT": "1"
+      },
+      "enabled": false
     }
   }
 }
