@@ -132,3 +132,21 @@ If a directory meets ANY of these criteria, put it in `.copilotignore`:
 | `<repo>/.copilotignore` | Per-project exclusion list |
 | `<repo>/.idea/misc.xml` | CLion excludeRoots |
 
+## Related: "Tool names must be unique" 400 error (not OOM, same plugin)
+
+A different failure mode from the OOM crash above, documented here since this is
+the CLion Copilot-plugin troubleshooting doc. Symptom: the whole request is
+rejected with `400 ... tools: Tool names must be unique`.
+
+**Root cause** (confirmed by reverse-engineering the plugin's minified
+`main.js`): the plugin's `VirtualToolGrouper` asks a small LLM to categorize each
+active MCP server's tools into named `activate_<group>` virtual tools. When two
+active servers expose semantically similar tool sets (confirmed trigger:
+Atlassian MCP + GitHub MCP, both issue/PR/search-shaped), the LLM assigns the
+same group name to both and `_deduplicateGroups` fails to fully prevent the
+collision, so duplicate tool names reach the backend and it rejects the request.
+
+**Workaround:** disable one of the colliding MCP servers while using the other
+(e.g. stop Atlassian when working with GitHub). This is an upstream plugin bug,
+not a config error — recognize the signature and apply the workaround rather
+than re-investigating. Recurred 2026-05-26, 06-14, 06-21, 06-30, 07-02.
