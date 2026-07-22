@@ -33,6 +33,7 @@
 - [Scratch / Temporary Files (CLion-specific)](#scratch--temporary-files-clion-specific)
 - [MCP Discovery — Opportunistic Search for New Tools](#mcp-discovery--opportunistic-search-for-new-tools)
 - [Markdown Conversion — Tool Routing](#markdown-conversion--tool-routing)
+- [Prior-Conversation Search](#prior-conversation-search)
 - [`$cmd` — List All Commands](#cmd--list-all-commands)
 - [Jira Integration (Atlassian MCP)](#jira-integration-atlassian-mcp)
 - [Verify Everything — Trust Nothing](#verify-everything--trust-nothing)
@@ -191,6 +192,26 @@ Also check **[cursor.directory](https://cursor.directory/)** — a community-cur
 ## Markdown Conversion — Tool Routing
 
 Use **`microsoft/markitdown`**'s `convert_to_markdown` tool for all markdown conversion needs. It accepts both local file paths and URIs (http:, https:, data:) and handles PDF, DOCX, XLSX, PPTX, images, audio, and web pages.
+
+---
+
+## Prior-Conversation Search
+
+Past AI-assistant conversations across agents (opencode, Copilot/CLion) are
+exported to `~/ai-history-archive/` and indexed locally. **Before re-deriving
+something that may already have been solved** — a tricky build failure, a review
+decision, an incident, a config fix — search that history first via `ai-search`:
+
+```bash
+ai-search buffered_readable_file                     # keyword (BM25/FTS5): code, symbols, error strings
+ai-search -s "how did we avoid streaming sstables"   # semantic (-s): meaning-based "how did I..." recall
+```
+
+Flags: `--agent {opencode,copilot-clion}`, `--after`/`--before YYYY-MM-DD`,
+`-n/--limit`. Each hit prints the source transcript path. Fully on-box (SQLite
+FTS5 + local Ollama embeddings — nothing leaves the machine). Rebuild after
+re-exporting: `python3 ~/ai-history-archive/_index/build_index.py` (keyword) and
+`build_embeddings.py` (semantic). Details: `~/ai-history-archive/_index/README.md`.
 
 ---
 
