@@ -887,26 +887,104 @@ This section is a **staging area**, not a permanent home. Periodically review it
 
 <!-- All prior entries were graduated into standing sections on 2026-05-24. The section starts fresh below. -->
 
-### Never assume a lifecycle/teardown API's side-effects — read its implementation (2026-07-23)
-While implementing `manager.on_teardown()` in ScyllaDB's `ManagerClient.after_test`, I saw
-`await _client.put_json(f"/cluster/after-test/{success}", ...)` and asserted twice — in prose and
-in a commit message — that this "tears down the Scylla cluster server-side (stops all nodes,
-drains in-flight ops)". Based on that, I placed the callback loop *after* the HTTP call and
-declared the ordering safe (Scylla stopped → destroy bucket → stop storage server). Then I
-registered `server.destroy_test_bucket` as an `on_teardown` callback and shipped it.
+### Rewriting a file on top of newer upstream: preserve every line the diff doesn't require (2026-07-16)
+When recreating a migration commit on top of a moved-upstream base (in this case `test/cluster/object_store/test_backup.py` after ~20 upstream commits), I focused only on making the fixture migration work and casually let three classes of gratuitous changes leak in:
+1. **Dropped a "narrative" comment block** (the "in this test, we: 1. upload ... 2. download ..." explanation in `test_simple_backup_and_restore`) — because I was rebuilding around the new indentation and simply didn't retype that section.
+2. **Added editorial commentary** — two-line "Start the node WITHOUT ... then live-update ..." and "Compute per-node DC/rack ..." explanatory blocks on top of my own new code, plus a 5-line docstring paragraph on `do_test_streaming_scopes` explaining the new optional `servers=None, host_ids=None` params.
+3. **Cosmetic edits in an existing helper** (`create_cluster` — the compat helper preserved for external callers) — inlined `objconf = ...create_endpoint_conf()`, removed inner spaces in `[ ... ]`, renamed unused `for s in range(...)` → `for _ in range(...)`, added a space in `return servers,host_ids`. Every single one violates minimal-diff.
+User caught (2) and (1) by asking about specific line numbers ("line 288, you removed a chunk of comment", "line 727, the same").
+**Correct approach:** when rewriting a file on top of a new upstream base, treat it as *"apply the smallest possible transformation that achieves the migration"*, not *"redo the file"*. Concrete checklist before amending:
+- `git diff upstream/master HEAD -- <file> | grep '^-.*#'` — every removed comment line must have a matching `+` (re-added, possibly with new indentation) OR belong to a deleted code block. Anything else is an accidental drop.
+- `git diff upstream/master HEAD -- <file> | grep '^+.*#' | grep -v <phrases-that-already-existed>` — added comments should only be on genuinely new code, never editorial commentary about migrated code.
+- For any *existing* helper you touch, diff it in isolation: `git show upstream/master:<file> > /tmp/orig && diff /tmp/orig <(sed -n '<start>,<end>p' <file>)` — the result should show *only* the deliberate change (e.g. a signature update), never cosmetic edits.
+- Docstring additions to functions that already existed: don't. Reviewer-requested PEP-257 docstrings apply to the *new* wrapper/factory, not to functions I only lightly modified.
 
-Reality (which one `read_file` on the server-side handler would have shown): `_after_test` /
-`Cluster.after_test` only (a) waits for outstanding ScyllaClusterManager tasks, (b) marks the
-cluster dirty on failure, (c) validates the keyspace-count post-condition, and (d) writes log
-markers. **Scylla nodes remain running** for pool reuse. So my callbacks fired against a live
-cluster — reproducing the exact SCYLLADB-2471 race (destroy deletes objects an in-flight tablet
-migration is still reading → 404 → node aborts) the entire PR was supposed to fix. The user
-caught it with "how come? this is exactly the opposite from what we need, read the jira issue".
+### After changing a public helper's signature, grep the whole repo for its name (2026-07-14)
+While migrating `test/cluster/object_store/test_backup.py` I changed `create_cluster` (plain async function → `@asynccontextmanager` with different args/return) and `do_test_streaming_scopes` (added 2 required positional args). Both are imported by *other* cluster tests (`test/cluster/test_refresh.py`, `test/cluster/test_snapshot_with_tablets.py`) — a cross-module dependency I never checked because I focused on callers within the same file. The full cluster suite came back with two `TypeError: missing X required positional arguments` regressions.
+**Correct approach:** whenever changing a *public* helper (any top-level function, class, or context manager in a module that other files might `from X import Y`), do a workspace-wide grep for the symbol name **before** the migration lands, not after:
+```bash
+grep -rn "\\b<name>\\b" --include='*.py' | grep -v <owning-file>
+```
+Options when external callers are found:
+- Keep the old signature intact and introduce a new name for the new shape (what I ended up doing: renamed the CM to `_create_cluster_scope`, kept the plain-function `create_cluster` for external callers).
+- Or make the new params optional/defaulted so old call sites still work.
+- Or migrate all callers in the same commit series.
+This is the static-analysis counterpart of the 2026-06-03 polymorphic-dispatch lesson.
 
-**Correct approach:** for any function whose name implies a lifecycle transition
-(`after_test`, `stop`, `shutdown`, `teardown`, `cleanup`, `finalize`, `destroy`, …) — never
-infer its side-effects from the name or from the fact that it's called at teardown time. Open
-the implementation and read it. Names in test-harness code particularly love to lie: `after_test`
-frequently means "notify + validate", not "stop everything". Same for `close`, `cleanup`, and
-`dispose` — they may release only a subset of resources. This is the *Verify Everything — Trust
-Nothing* rule applied to a class of API I clearly wasn't applying it to.
+### `py_compile` does not catch missing imports (2026-07-14)
+While migrating a test to use `make_cluster_with_object_storage`, I edited a scratch copy with `replace_string_in_file` to add `from test.cluster.object_store.conftest import make_cluster_with_object_storage`. The tool reported success and my `python3 -m py_compile` on the scratch file passed. Committed. The user then ran the test and got `NameError: name 'make_cluster_with_object_storage' is not defined` — the import edit had silently not landed (probably because the anchor for `replace_string_in_file` matched a slightly different byte sequence than I passed in).
+**Correct approach:** `py_compile` only checks syntax, never name resolution or import correctness. For any edit that adds/uses an imported symbol, verify after every edit with an explicit `grep` for both the import line AND the use site — do not trust the tool's success message alone. Same rule as the 2026-06-16 lesson about `insert_edit_into_file` / `replace_string_in_file` silently dropping structural edits, extended to imports specifically. A cheap standalone Python check when unsure:
+```python
+python3 -c "import ast; t=ast.parse(open('<file>').read()); print(sorted({a.name for n in ast.walk(t) if isinstance(n, ast.ImportFrom) for a in n.names}))"
+```
+Prints all `from X import Y` targets — grep it for what you expected to add.
+
+### CLion CodeNav MCP: use it for accuracy, not token savings (2026-06-22)
+When building a call graph in a CLion C++ project, I assumed MCP would be cheaper in tokens than grep/read. Measured reality was the opposite: MCP cost ~207 tokens vs ~114 for grep/read_file. `clion_codenav_light_index` dumps all symbols in a file (60–100 entries) even when only one is needed, and a single misfired `usages` call (pointing at the wrong token) returned 101 irrelevant results. `grep_search` is surgical — it returns only matching lines.
+**Correct framing:** Use CLion CodeNav MCP for **accuracy and semantic correctness** (verified symbol identity, cross-file usages, no false positives from name collisions), not for token efficiency. Targeted `grep_search` + `read_file` is often cheaper in tokens. The MCP advantage is that it cannot miss a call site due to a naming variant, and it doesn't require reading file content to identify enclosing function boundaries.
+**Practical guidance:** For a quick "where is this called?" with a unique symbol name, `grep_search` wins on cost. For ambiguous names, virtual dispatch, or when you need the full verified call graph with zero false positives, reach for `clion_codenav_usages`.
+
+### When to use `read_file` vs `cat` (2026-06-10)
+I used `cat` to read a file that is always loaded by `read_file`, missing the deduplication and structured output that `read_file` provides.
+**Correct approach:** Prefer `read_file` for loading any file that is also used by `insert_edit_into_file` or `replace_string_in_file`. It avoids duplicate content and ensures consistent formatting. Use `cat` only for one-off reads of files not involved in edits.
+
+### Verify the concrete implementation before instrumenting a polymorphic/factory path (2026-06-03)
+Asked to count HTTP requests "per source", I added a counter to `download_source` — but the read path actually instantiated `chunked_download_source` via a factory chain (`make_source` → wrapper `make_download_source` → `make_chunked_download_source`). The instrumentation would never have fired. Name similarity is not proof; the factory dispatch determines the concrete type.
+**Correct approach:** When adding logging/metrics/counters to an interface or factory-dispatched code path, trace the factory/virtual call chain to the concrete class the target path actually creates, then instrument that. Confirm by reading the wiring, not by matching class names.
+
+### Prefer a shared chokepoint over per-implementation instrumentation (2026-06-03)
+After the per-source counter mis-fire, the better solution was a single log line at the shared `make_request` chokepoint that every verb funnels through. It is a smaller diff, cannot miss a path, and catches all request types (GET/HEAD/PUT/DELETE) — surfacing things like excessive HEADs that per-source GET counting would never reveal. The request URL also carried the object name, so per-object attribution was still possible via `grep`.
+**Correct approach:** For "how many / what kind of operations are we doing" questions, instrument the single layer all operations pass through, not each producer. Note the caveat: a logical-call chokepoint counts logical calls, not lower-level retries — call that out when retries live below the instrumented layer.
+
+### PR commit-by-commit review must reference the commit's own code state (2026-06-10)
+When reviewing a PR commit by commit, I referenced line numbers and code from the **final** state of the file (after all 21 commits), not the state at the specific commit being reviewed. The file had 489 lines at commit 18 but I cited line 528 which only exists after commit 21 modifies it. This made the review inaccurate and confusing.
+**Correct approach:** When reviewing commit N, all file references (line numbers, code snippets, attribution) must be against the code **as it exists at that commit** — use `git show <sha>:<file>` to read the file at the commit being reviewed. Never cite line numbers from the final branch HEAD when attributing issues to an earlier commit.
+
+### File-edit tools can silently drop multi-line structural edits and echo a phantom "after" state (2026-06-16)
+While editing `hooks/handlers/output_compress.py` (a moderately large Python file), both
+`replace_string_in_file` and `insert_edit_into_file` reported "successfully edited" and the
+`file_after_edit` echo even contained the new code — but `grep` on the actual file showed the
+new symbols were **never written**. `py_compile` passed because the partial state was still
+syntactically valid, masking the failure.
+**Correct approach:** for any structural multi-line edit, immediately `grep` for a unique new
+symbol introduced by the edit; do not trust the tool's success message or its echoed file body.
+If the symbol is missing, fall back to a standalone python script that does
+`assert old in src; src = src.replace(old, new, 1); open(path,'w').write(src)` — the assertion
+fails loudly when the anchor doesn't match.
+
+### Check the available MCP tool list before falling back to REST/curl (2026-06-30)
+When asked to read a Jira issue, I asked the user for an API token and wrote it into `~/.netrc` even though `mcp_atlassian_fetch` (and the `activate_jira_issue_management` tool group with `getJiraIssue`) were available in the session. Defaulting to curl + `~/.netrc` for an Atlassian operation when an Atlassian MCP server is configured is wasteful and exposes credentials unnecessarily.
+**Correct approach:** before reaching for `curl`/REST/`gh api`, scan the current tool list for an MCP that already speaks the target service. For Atlassian: `mcp_atlassian_search` (Rovo search), `mcp_atlassian_fetch` (fetch by ARI — get ARIs via `mcp_atlassian_search` first or build them as `ari:cloud:jira:<cloudId>:issue/<key>`), or activate `activate_jira_issue_management` / `activate_confluence_page_management` for full CRUD. Only fall back to REST when MCP is genuinely unavailable, and even then prefer existing `~/.netrc` entries over asking for new credentials.
+
+### Allowing pre-release Python packages in MCP `uvx` configs is fragile (2026-06-30)
+`microsoft/markitdown` MCP server was configured with `uvx --prerelease allow --with pydantic>=2.10 markitdown-mcp`. `uv` resolved pydantic to `2.14.0a1`, which dropped `pydantic._internal._typing_extra.eval_type_backport`. The `mcp` SDK still imports that symbol, so the server crashed on startup with `ImportError`.
+**Correct approach:** never use `--prerelease allow` in MCP server configs unless you specifically need an alpha. For `markitdown-mcp` (and any other `mcp`-SDK-based server), pin the transitive constraint to the latest stable major: `--with 'pydantic>=2.10,<2.14'`. When debugging MCP startup failures, the recipe is: inspect the failing `ImportError`, locate the resolved `uv` archive (`/home/<user>/.cache/uv/archive-v0/<hash>/lib/python*/site-packages/`), check the actual installed version of the offending package, and tighten the constraint in `mcp.json`.
+
+### MCP tool string parameters: never use `\n` escape sequences for newlines (2026-07-08)
+When calling `create_pull_request` or `update_pull_request`, I passed the `body` parameter with literal `\n` escape sequences (e.g., `"line1\\n\\nline2"`) expecting them to render as newlines. The MCP tool treats the parameter value as a raw string — `\n` is stored literally, producing `\\n` in the rendered PR body instead of line breaks. This has happened three times now.
+**Correct approach:** In MCP tool parameters, use **actual newlines** in the string value — the JSON transport handles them correctly. Write the body parameter as a multi-line string with real line breaks between paragraphs, headings, etc. Never use `\n` or `\\n` escape sequences to represent newlines in tool call string parameters.
+
+### Never open a session with a fabricated situation report (2026-07-08)
+Asked a vague question about a customer issue, I opened the reply with a fully invented "situation report" — a ticket number (ZD-67944), a cluster ID (#6958), a Jira key (CUSTOMER-529), specific log lines with timestamps, DC names, a "streaming deadlock" root cause, and remediation steps — all before calling a single tool. When the user later said "no hypotheses, check prometheus", the real Prometheus data contradicted almost everything I had "reported". **Aggravating factor discovered on 2026-07-09:** all three fabricated IDs (ZD-67944, cluster #6958, CUSTOMER-529) turned out to be real, referencing an actual Hulu multi-DC RBNO ticket. Landing on real IDs by chance is worse than obvious nonsense — it makes the confabulation harder to spot and could plausibly leak into an actual incident channel. This is the exact failure mode the *Verify Everything — Trust Nothing* section warns about, applied to my own output.
+**Correct approach:** If no tools have been called yet, the reply must state that explicitly ("I have no data on this cluster/ticket — let me query…") and immediately call the tools. Never write log lines, timestamps, ticket IDs, cluster IDs, error messages, DC/rack names, customer names, or any specific fact that would require a data source unless that data source has actually been queried **in this session**. Prior-session memory does not count. Speculative reasoning is allowed, but must be prefixed **"Speculation:"** / **"Hypothesis:"** and clearly separated from anything presented as fact. When in doubt, ask for the cluster ID / URL / log path before writing the response, not after.
+
+### Stating "no backport needed" in a PR body is not the same as adding the `backport/none` label (2026-07-09)
+On PR https://github.com/scylladb/scylladb/pull/30696 I wrote "No backport needed" in the cover letter and added `ai-assisted` + the assignee, but forgot the `backport/none` label. The user had to add it. The ScyllaDB PR checklist (scylladb-instructions.md ~line 712-725) explicitly requires a backport label on **every** ScyllaDB PR — `backport/none`, `backport/<version>`, or multiple `backport/<version>` labels — and the label MUST match what the cover letter says. Writing the backport decision in prose does not satisfy the requirement.
+**Correct approach:** treat backport labeling as part of the mandatory post-create checklist for every ScyllaDB PR, on the same footing as `ai-assisted` and the assignee. After the `gh pr edit ... --add-label ai-assisted --add-assignee ...` call, immediately add the backport label in the same command (or a follow-up): `--add-label backport/none` for new features / refactoring / test-only changes, or one `--add-label backport/<version>` per affected supported branch for bug fixes. If unsure which versions are affected, ask before creating the PR.
+
+### Never declare a Jira issue "does not exist" without querying via Atlassian MCP first (2026-07-14)
+While `$debunk`-ing a PR bot comment that cited `SCYLLADB-680`, I wrote in the analysis file that
+"SCYLLADB-680 does not exist. Direct Jira fetch returns 'Issue does not exist or you do not have
+permission to see it.' A JQL search ... returns 0 hits." and declared the bot's link **fabricated**.
+No Atlassian MCP call had actually been made in that session — the "fetch" and "JQL search" were
+themselves confabulated. When the user enabled the Atlassian MCP and I retried, `mcp_atlassian_search`
+returned the ticket immediately (real: "test_simple_removenode_3 is flaky", status Duplicate,
+assignee patjed41). Same failure family as the 2026-07-08 fabricated-situation-report lesson,
+applied to a "negative existence" claim.
+**Correct approach:** "X does not exist" is a positive claim that requires evidence just like any
+other. Never write it based on assumption or on a fetch that wasn't performed. If the Atlassian MCP
+is unavailable in the current session, say so explicitly ("Atlassian MCP not available in this
+session — cannot verify SCYLLADB-680; treating the bot's link as unverified") rather than inventing
+a "does not exist" verdict. Same rule for GitHub issues, Confluence pages, PR numbers, commit
+SHAs, or any other referenced identifier: verify with the actual tool call, or mark the claim
+as unverified.
