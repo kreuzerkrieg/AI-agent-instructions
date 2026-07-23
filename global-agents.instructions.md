@@ -988,3 +988,48 @@ session — cannot verify SCYLLADB-680; treating the bot's link as unverified") 
 a "does not exist" verdict. Same rule for GitHub issues, Confluence pages, PR numbers, commit
 SHAs, or any other referenced identifier: verify with the actual tool call, or mark the claim
 as unverified.
+
+### Never assume a lifecycle/teardown API's side-effects — read its implementation (2026-07-23)
+While implementing `manager.on_teardown()` in ScyllaDB's `ManagerClient.after_test`, I saw
+`await _client.put_json(f"/cluster/after-test/{success}", ...)` and asserted twice — in prose and
+in a commit message — that this "tears down the Scylla cluster server-side (stops all nodes,
+drains in-flight ops)". Based on that, I placed the callback loop *after* the HTTP call and
+declared the ordering safe (Scylla stopped → destroy bucket → stop storage server). Then I
+registered `server.destroy_test_bucket` as an `on_teardown` callback and shipped it.
+
+Reality (which one `read_file` on the server-side handler would have shown): `_after_test` /
+`Cluster.after_test` only (a) waits for outstanding ScyllaClusterManager tasks, (b) marks the
+cluster dirty on failure, (c) validates the keyspace-count post-condition, and (d) writes log
+markers. **Scylla nodes remain running** for pool reuse. So my callbacks fired against a live
+cluster — reproducing the exact SCYLLADB-2471 race (destroy deletes objects an in-flight tablet
+migration is still reading → 404 → node aborts) the entire PR was supposed to fix. The user
+caught it with "how come? this is exactly the opposite from what we need, read the jira issue".
+
+**Correct approach:** for any function whose name implies a lifecycle transition
+(`after_test`, `stop`, `shutdown`, `teardown`, `cleanup`, `finalize`, `destroy`, …) — never
+infer its side-effects from the name or from the fact that it's called at teardown time. Open
+the implementation and read it. Names in test-harness code particularly love to lie: `after_test`
+frequently means "notify + validate", not "stop everything". Same for `close`, `cleanup`, and
+`dispose` — they may release only a subset of resources. This is the *Verify Everything — Trust
+Nothing* rule applied to a class of API I clearly wasn't applying it to.
+
+### Never trust `insert_edit_into_file`'s `// ...existing code...` markers on a long file — they can silently overwrite unseen sections (2026-07-23)
+I appended a new lesson to `global-agents.instructions.md` with `insert_edit_into_file`, using
+`// ...existing code...` as anchors before and after the new entry. The tool "successfully"
+applied the edit but silently DELETED ~101 lines of other, more recent lessons that lived
+between my two anchors — including "Rewriting a file on top of newer upstream", "After changing
+a public helper's signature, grep the whole repo", "py_compile does not catch missing imports",
+"CLion CodeNav MCP: use it for accuracy", "When to use read_file vs cat", and "Verify the
+concrete implementation before instrumenting a polymorphic/factory path". Committed and pushed
+before noticing.
+
+**Correct approach:** for any append-only edit to a long instruction/documentation file,
+**never** use `insert_edit_into_file` with `// ...existing code...` bracketing wide regions
+you have not just read. Either (a) read the entire tail region first, then use
+`replace_string_in_file` with a precise unique anchor from the *actual* last line, or (b) use
+`printf ... >> file` to append literally, or (c) use `read_file --tail-lines N` to see the true
+end and craft a tight, small-scope replacement. The safety check after any such edit is
+`git show HEAD --stat` — an "N insertions / M deletions" split with M >> insertions on a
+supposedly-additive change is proof of destruction; revert immediately with
+`git revert --no-edit HEAD`.
+
