@@ -1033,3 +1033,23 @@ end and craft a tight, small-scope replacement. The safety check after any such 
 supposedly-additive change is proof of destruction; revert immediately with
 `git revert --no-edit HEAD`.
 
+
+### Don't use the claude.ai-hosted Gmail connector for status emails — generate a markdown file instead (2026-07-23)
+Drafting the user's weekly status email via the claude.ai Gmail MCP connector, `update_draft`
+repeatedly failed with "MCP server session expired". I first read it as OAuth expiry and had
+the user reconnect twice — it failed again. Isolating variables showed the truth: `list_labels`
+and a minimal `update_draft` (body="test") both SUCCEEDED, while the full HTML payload failed
+every time. The large `htmlBody` payload was timing out and the error was mislabeled "session
+expired". The connector also disconnected outright between calls, and the "test" probe clobbered
+the real draft body. The user then said to drop Gmail entirely ("as I thought nothing from google
+would work").
+
+**Correct approach:** For the user's weekly status email, do NOT send/draft via any Google/Gmail
+MCP connector. Generate an email-ready markdown file next to the week's report at
+`~/Development/weekly-reports/<YYYY>/<YYYY>-W<NN>-email.md`, built fresh from
+`<YYYY>-W<NN>.md` (greeting "Hi Łukasz,", mirror the `##`/`###` structure, preserve bold ticket
+keys and Jira/PR links, OMIT the `## Needs your input` section and the top "Draft…" note, close
+with "Sincerely,\nErnest"). The user renders it and copy-pastes into Gmail. General lesson beyond
+this task: when a hosted MCP connector reports "session expired", first isolate whether reads and
+a tiny write succeed before assuming auth — a large-payload timeout is frequently mislabeled as a
+session/auth failure, and reconnecting won't fix it.
