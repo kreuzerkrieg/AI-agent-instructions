@@ -11,11 +11,29 @@ Password is read from ~/.config/gimme-aws-creds-pass (chmod 600).
 
 import sys
 import os
+import shutil
 import pexpect
 
-GIMME = os.path.expanduser("~/Development/scylladb/venv/bin/gimme-aws-creds")
 PASS_FILE = os.path.expanduser("~/.config/gimme-aws-creds-pass")
 TIMEOUT = 30
+
+# Resolve gimme-aws-creds from PATH first so the script keeps working when the
+# venv it used to live in is moved or renamed; fall back to the known venvs.
+_FALLBACKS = (
+    "~/Development/scylladb/venv/bin/gimme-aws-creds",
+    "~/Development/scylladb_1/venv/bin/gimme-aws-creds",
+)
+
+
+def find_gimme():
+    found = shutil.which("gimme-aws-creds")
+    if found:
+        return found
+    for candidate in _FALLBACKS:
+        candidate = os.path.expanduser(candidate)
+        if os.access(candidate, os.X_OK):
+            return candidate
+    sys.exit("gimme-aws-creds not found on PATH or in any known venv")
 
 
 def get_password():
@@ -27,7 +45,7 @@ def main():
     totp = sys.argv[1] if len(sys.argv) > 1 else None
     password = get_password()
 
-    child = pexpect.spawn(GIMME, encoding="utf-8", timeout=TIMEOUT)
+    child = pexpect.spawn(find_gimme(), encoding="utf-8", timeout=TIMEOUT)
     child.logfile_read = sys.stdout  # echo output to terminal
 
     # --- password prompt (keyring unavailable in PTY context) ---
