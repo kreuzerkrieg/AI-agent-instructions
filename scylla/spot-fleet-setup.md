@@ -47,10 +47,14 @@ export AWS_DEFAULT_REGION=us-east-1
 ## 1. Why Fedora AMI (not Ubuntu)
 
 The binary is built on the local **Fedora** machine with the native toolchain, so it links
-against Fedora library versions (`libicu*.so.76`, `libjsoncpp.so.26`, …). On Ubuntu those
+against Fedora library versions (`libicu*.so.77`, `libjsoncpp.so.26`, …). On Ubuntu those
 don't exist and you have to `scp` libs and juggle `LD_LIBRARY_PATH` (see
 `x86-instance-setup.md §4`). Booting a **Fedora Cloud AMI** whose release matches the
-build toolchain (Fedora 43) eliminates that entirely — the binary just runs.
+build toolchain removes the version *mismatch*, so no `LD_LIBRARY_PATH` juggling is needed.
+
+⚠️ It does **not** remove the need to install libraries. The Cloud Base image is minimal: it
+carries base ICU but not the rest of what a Scylla binary links. Expect ~14 missing sonames
+and install them in one shot (§6.1).
 
 **Default login user on Fedora Cloud AMIs is `fedora`, not `ubuntu`.**
 
@@ -76,7 +80,9 @@ aws ec2 describe-images \
   --output text
 ```
 
-Pick the newest whose name matches the Fedora release you built against (e.g. `43`).
+Pick the newest whose name matches the Fedora release you built against — check with
+`cat /etc/fedora-release` on the build box, do not assume. Getting this wrong puts you back
+into library-version juggling.
 
 ---
 
@@ -155,6 +161,63 @@ reach for `create-fleet` only when spot capacity for one type/AZ is scarce.
 
 ---
 
+### Capacity fallback — expect the cheapest AZ to be full
+
+`InsufficientInstanceCapacity` on spot is routine, and it hits the cheapest AZ first because
+everyone else wants it too. On 2026-07-26 three attempts failed before one succeeded:
+i7i.8xlarge/1f ($1.08), i4i.8xlarge/1d ($1.29), i4i.8xlarge/1c ($1.34) — landed on
+i4i.8xlarge/1f at $1.51.
+
+Note a cheaper *family* in another AZ often beats the pricier family, so rank candidates
+across family x AZ together, not family-first. Get current prices with:
+
+```bash
+for T in i4i.8xlarge i7i.8xlarge; do
+  aws ec2 describe-spot-price-history --instance-types $T \
+    --product-descriptions "Linux/UNIX" --max-items 6 \
+    --query 'SpotPriceHistory[].[AvailabilityZone,SpotPrice]' --output text | sort -u
+done
+```
+
+Then walk the list cheapest-first and stop at the first success:
+
+```bash
+# "type:az:subnet:price", cheapest first
+CANDS="i4i.8xlarge:us-east-1c:subnet-090ce5c775e0dbc19:1.341
+i4i.8xlarge:us-east-1f:subnet-037920b544cddbc1b:1.510
+i7i.8xlarge:us-east-1b:subnet-06604bf2840958461:1.606"
+for c in $CANDS; do
+  T=${c%%:*}; rest=${c#*:}; AZ=${rest%%:*}; rest=${rest#*:}; SN=${rest%%:*}
+  echo "--> trying $T in $AZ"
+  OUT=$(aws ec2 run-instances --image-id "$AMI" --instance-type "$T" --count 1 \
+    --key-name ernest --security-group-ids "$SG" --subnet-id "$SN" \
+    --instance-market-options 'MarketType=spot' \
+    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$FLEET},{Key=owner,Value=ernest}]" \
+    --query 'Instances[].InstanceId' --output text 2>&1) && { echo "LAUNCHED: $OUT"; break; }
+done
+```
+
+### The SSH security group is not in the default VPC
+
+`SCT-builder-ssh-sg` (`sg-01ab61b39746e1bb6`) lives in `vpc-0935da7392dc9d4d8`, which is
+**not** the default VPC. So `--subnet-id` is mandatory — omit it and `run-instances` fails on
+an SG/subnet VPC mismatch. That VPC has a public subnet (`MapPublicIpOnLaunch=true`) in every
+AZ; as of 2026-07-26:
+
+| AZ | subnet |
+|----|--------|
+| us-east-1a | `subnet-0a09ba4421ec6aaa8` |
+| us-east-1b | `subnet-06604bf2840958461` |
+| us-east-1c | `subnet-090ce5c775e0dbc19` |
+| us-east-1d | `subnet-02058636b6c0cde8b` |
+| us-east-1e | `subnet-08d162f7d1ef05482` |
+| us-east-1f | `subnet-037920b544cddbc1b` |
+
+The group already allows tcp/22 from `0.0.0.0/0`, so no per-IP rule is needed — convenient if
+WARP changes your egress IP mid-session.
+
+---
+
 ## 5. Preparing the NVMe (per instance)
 
 The local NVMe is **not** mounted automatically. The root EBS volume is `/dev/nvme0n1`;
@@ -192,7 +255,7 @@ sudo mkdir -p /mnt/data && sudo mount /dev/md0 /mnt/data
 sudo chown "$USER":"$USER" /mnt/data/
 ```
 
-(`mdadm` is preinstalled on Fedora Cloud; if not, `sudo dnf install -y mdadm`.)
+(`mdadm` is **not** preinstalled on Fedora Cloud Base — `sudo dnf install -y mdadm` first.)
 
 > For a *real* ScyllaDB data path you'd normally run `scylla_setup`/`io_setup` (XFS, tuned
 > I/O properties) rather than a hand-mounted ext4. This ext4-at-`/mnt/data` recipe is for
@@ -230,6 +293,25 @@ ssh -i ~/.ssh/ernest.pem fedora@<IP> \
 
 ---
 
+### Install the runtime libraries first
+
+The Cloud Base image lacks most of what a Scylla binary links. Check, then install in one go:
+
+```bash
+ldd /mnt/data/<binary> | grep "not found"
+
+sudo dnf install -y libdeflate snappy cryptopp yaml-cpp boost-regex boost-program-options \
+  boost-container boost-test libatomic lksctp-tools protobuf hwloc-libs liburing jsoncpp
+
+ldd /mnt/data/<binary> | grep "not found"   # expect empty
+```
+
+That list resolved all 14 missing sonames for `perf_s3_downloader` on Fedora 44
+(2026-07-26). Because the AMI release matches the build host, the repo versions match what
+the binary was linked against, so no `LD_LIBRARY_PATH` is required.
+
+---
+
 ## 7. Running the Binary
 
 Set the FD limit high before any high-connection workload (Fedora default is also low
@@ -238,8 +320,14 @@ survives SSH disconnects.
 
 ```bash
 ssh -i ~/.ssh/ernest.pem fedora@<IP> \
-  'ulimit -n 1000000; cd /mnt/data; nohup ./<binary> [args...] > /mnt/data/out.txt 2>&1 & echo "PID: $!"'
+  'ulimit -n 524288; cd /mnt/data; nohup ./<binary> [args...] > /mnt/data/out.txt 2>&1 & echo "PID: $!"'
 ```
+
+⚠️ Use **524288**, not the 1000000 quoted in `x86-instance-setup.md §6`. On Fedora Cloud the
+hard limit is 524288 (systemd `DefaultLimitNOFILE`), so asking for more fails outright with
+`ulimit: open files: cannot modify limit: Operation not permitted` — and if you don't notice,
+the limit silently stays at the 1024 soft default and a high-connection run dies on EMFILE.
+524288 is ample: 32 shards x 128 connections is 4096 sockets.
 
 If the binary needs **AWS credentials** (e.g. S3 access from within the test), do **not**
 inline them in the SSH string — the session token contains `+`/`/`/`=`. Generate a run
@@ -288,4 +376,27 @@ auto-shutdown watcher in `arm-instance-setup.md §7`, swapping `stop-instances` 
 
 ## 10. Lessons Learned
 
-_(none yet — append dated entries as the workflow is exercised)_
+### First exercise of this runbook (2026-07-26)
+
+Launched one i4i.8xlarge spot in us-east-1f to run `perf_s3_downloader` against a real S3
+backup. Everything above that is marked ⚠️ came from this run. Beyond those:
+
+- **Two instance-store NVMe on i4i.8xlarge** (`nvme1n1`, `nvme2n1`, 3.4 TB each). The RAID-0
+  recipe in §5 works as written and yields 6.8 TB at `/mnt/data`. Root is `nvme0n1` (5 GB EBS).
+- **`timeout` alone will not kill a wedged Seastar app.** It sends SIGTERM, which a stuck
+  reactor ignores, and then `timeout` waits forever. Always `timeout -s KILL <n>` when driving
+  these binaries from a script, or you lose the output along with the process.
+- **Redirect to a file, don't pipe to `tail`.** If the run is killed, a pipeline's buffer is
+  lost and you get nothing. `> out.txt 2>&1` then read the file.
+- **`--default-log-level warn` also silences your own test's INFO output.** Pair it with
+  `--logger-log-level <logger>=info` — e.g. `--default-log-level warn --logger-log-level
+  perf=info` — to keep the test's numbers while suppressing the s3 client's per-abort
+  backtrace flood (cf. `x86-instance-setup.md §11`).
+- **NIC ceiling is worth knowing before blaming the network.** `i4i.8xlarge` is 18.75 Gbps
+  with baseline == peak, so there are no burst credits to confuse matters. A run doing
+  340 MB/s was at ~15% of the NIC, which ruled the network out immediately:
+  `aws ec2 describe-instance-types --instance-types <type> --query
+  'InstanceTypes[0].NetworkInfo.[NetworkPerformance,NetworkCards[0].BaselineBandwidthInGbps,NetworkCards[0].PeakBandwidthInGbps]'`
+- **The credential run-script pattern from `x86-instance-setup.md §5` works unchanged** here;
+  `shlex.quote()` the three AWS values into a script and `scp` it. Worth keeping the
+  `mkdir -p /mnt/data/corpus` and `ulimit` inside that script so a run can't forget them.
