@@ -15,10 +15,15 @@ import shutil
 import pexpect
 
 PASS_FILE = os.path.expanduser("~/.config/gimme-aws-creds-pass")
-TIMEOUT = 30
+# Generous: a cold uvx cache has to resolve and download the environment before
+# the first prompt appears. This is a ceiling on waiting, not a fixed delay.
+TIMEOUT = 120
+GIMME_PIN = "gimme-aws-creds==2.8.2"
 
-# Resolve gimme-aws-creds from PATH first so the script keeps working when the
-# venv it used to live in is moved or renamed; fall back to the known venvs.
+# Locate the gimme-aws-creds launcher script. Every copy on disk carries a
+# shebang pointing at an interpreter that cannot import gimme_aws_creds (the
+# package lives in the pyenv user site-packages), so the launcher is never
+# executed directly -- see run_gimme() below.
 _FALLBACKS = (
     "~/Development/scylladb/venv/bin/gimme-aws-creds",
     "~/Development/scylladb_1/venv/bin/gimme-aws-creds",
@@ -36,6 +41,26 @@ def find_gimme():
     sys.exit("gimme-aws-creds not found on PATH or in any known venv")
 
 
+def run_gimme():
+    """Spawn gimme-aws-creds, preferring an isolated uvx environment.
+
+    The copy installed in the pyenv user site-packages is unusable: it pulls in
+    whatever version of the okta SDK happens to be installed there, and
+    gimme-aws-creds 2.8.2 needs okta<3.0.0 (3.0.0 renamed APIClient to
+    ApiClient, so main.py fails to import). uvx resolves the pinned dependency
+    set in a throwaway environment, which keeps this working regardless of what
+    the shared site-packages contains.
+
+    The local launcher is kept as a fallback, spawned under *this* interpreter
+    rather than executed directly -- its own shebang points at a python that
+    cannot import the package at all.
+    """
+    uvx = shutil.which("uvx")
+    if uvx:
+        return pexpect.spawn(uvx, ["--from", GIMME_PIN, "gimme-aws-creds"], encoding="utf-8", timeout=TIMEOUT)
+    return pexpect.spawn(sys.executable, [find_gimme()], encoding="utf-8", timeout=TIMEOUT)
+
+
 def get_password():
     with open(PASS_FILE) as f:
         return f.read().strip()
@@ -45,7 +70,7 @@ def main():
     totp = sys.argv[1] if len(sys.argv) > 1 else None
     password = get_password()
 
-    child = pexpect.spawn(find_gimme(), encoding="utf-8", timeout=TIMEOUT)
+    child = run_gimme()
     child.logfile_read = sys.stdout  # echo output to terminal
 
     # --- password prompt (keyring unavailable in PTY context) ---
