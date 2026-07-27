@@ -376,6 +376,69 @@ auto-shutdown watcher in `arm-instance-setup.md §7`, swapping `stop-instances` 
 
 ## 10. Lessons Learned
 
+### Driving a fleet over ssh: six ways it silently does nothing (2026-07-27)
+
+A sizing sweep produced six distinct failures, none of which were test findings — all were driver
+bugs that make instances bill while contributing nothing. Each has a cheap guard.
+
+**1. ssh does not return from a backgrounded remote script that has a long-running loop.** Even with
+`setsid nohup ... >/dev/null 2>&1 </dev/null &`, the ssh call blocked for the full ~7 minutes of the
+remote sampling loop. A sequential `for ip in ...; do ssh ...; done` therefore started only two of
+six boxes before hitting a timeout, and the two that did start were 7 minutes apart — which also
+ruins any concurrent measurement. **Always fan out:** `( scp ...; ssh ... ) &` per host, then
+`wait`, exactly as the existing `setup()` does. Append `; exit` to the remote command to make ssh
+close the channel.
+
+**2. `local a=$1 b=$2 out=x_${a}_${b}` expands before it assigns.** Bash expands every word on the
+line before performing any of the assignments in that same statement, so `out` became `x__` on every
+call and eight probe runs all wrote to one file. Split the declarations onto separate lines. The
+symptom is a single oddly-named output file where you expected N.
+
+**3. The perf harness does not exit on SIGTERM while downloads are in flight.** `pkill` left a
+process running 20 minutes later, so a `wait`-based driver hung forever. For probe runs that only
+need one log line, use `pkill -9`.
+
+**4. Seastar reserves ~93% of RAM, which makes rapid start/kill cycles fail.** After a `kill -9` the
+kernel is still tearing down ~230 GB of page tables, so the next process starves during startup and
+never reaches its first log line — producing a 0-byte log and an alternating success/failure pattern
+across iterations. For anything that just lists or probes, pass **`-m 8G`**; it makes startup and
+teardown near-instant. Do not use `-m` for real measurement runs.
+
+**5. Deploy the RELEASE binary, and check `ldd` not just presence.** A `dev` build was deployed and
+died with `libseastar_perf_testing.so: cannot open shared object file` plus ~40 missing absl
+libraries: `dev` links seastar dynamically, `release` does not. Beyond the launch failure, a dev
+build would have invalidated comparison against every previous release-build run. Guard:
+`ldd "$BIN" | grep -c 'not found'` must be 0 locally, and md5 must match on the box.
+
+**6. Do not terminate a failed instance before diagnosing it.** Two instances failed to make any
+progress and were terminated in the same breath as the finished ones to stop the billing. Only the
+log head survived, and the interesting failure can no longer be investigated. Pull the full log
+first — it costs seconds — then terminate.
+
+### Sizing sweeps: one at a time, and mind the AWS_PROFILE (2026-07-27)
+
+**Sweep sequentially, not in parallel.** Launching all six candidate sizes at once costs the full
+fleet for the whole sweep, whereas the point of a sweep is to *stop at the limit* — the answer
+arrived at the second rung, so four of six instances were pure waste. Setup is the slow part
+(~4 min) but it is per-box either way, so sequential costs nothing extra in wall time per box and
+lets you quit early. Parallel is only right once the boxes are already provisioned.
+
+**`refresh-aws-creds` writes to a named profile, and `[default]` is a trap.** Credentials land in
+`[797456418907-DevOpsAccessRole]`; the `[default]` profile in `~/.aws/credentials` holds a stale
+access key and secret with **no `aws_session_token`**. An STS key without its session token is
+rejected as `InvalidAccessKeyId` / `InvalidClientTokenId` — which reads exactly like expiry and sent
+me chasing a non-existent credential problem. `s3-fleet.sh` exports the profile; ad-hoc `aws` calls
+must too. Distinguishing the two errors matters: `ExpiredToken` means refresh, `InvalidAccessKeyId`
+means wrong profile.
+
+**Spot capacity for i4i/i7i is effectively zero at every size.** Spot *prices* are quoted for all of
+i4i/i7i 8xl through 48xl, but `run-instances` returned no capacity for all six types across every
+AZ tried. Budget on-demand for this family and treat a spot success as a bonus; the earlier
+placement-score-1 finding generalises to the larger sizes.
+
+**The pricing API is not available to this role** — `pricing:GetProducts` is denied. Use
+`describe-spot-price-history` for real relative numbers rather than quoting list prices from memory.
+
 ### Measuring a fleet, and credentials (2026-07-27)
 
 **Check credential age before launching, not just validity.** STS credentials from
