@@ -376,6 +376,56 @@ auto-shutdown watcher in `arm-instance-setup.md §7`, swapping `stop-instances` 
 
 ## 10. Lessons Learned
 
+### Measuring a fleet, and credentials (2026-07-27)
+
+**Check credential age before launching, not just validity.** STS credentials from
+`refresh-aws-creds` last ~6 hours and are baked into the generated run script as static env vars,
+so a running job cannot pick up refreshed ones. A ~1 hour fleet run was started on credentials
+already 2h45m old; they expired mid-run and every request then failed with
+`The provided token has expired` -- ~18,000 per box, six boxes burning money producing nothing.
+Refresh first, and treat `stat -c %y ~/.aws/credentials` as part of the pre-launch checklist. The
+clean fix is an instance profile on the boxes, which removes the expiry class of failure entirely
+rather than widening the margin.
+
+**Take throughput from the boxes, not from CloudWatch.** Three separate wrong numbers came from
+the CloudWatch path in one afternoon, all of them mine but all of them easy traps:
+
+- `--query 'sort_by(Datapoints,&Timestamp)[-1].Sum'` returns the **currently-filling bucket**, so
+  it reads low. Use `[-2]`.
+- `Sum` must be divided by the **actual** bucket width. Passing `--period 60` does not make the
+  buckets 60s; EC2 stores 5-minute buckets unless detailed monitoring has been enabled *and*
+  publishing for a while. Dividing a 300s Sum by 60 overstates by 5x.
+- Detailed (1-minute) monitoring is **billed** per instance, does not retroactively re-bucket, and
+  takes minutes to take effect -- so it is useless for a short run. `aws ec2 monitor-instances` /
+  `unmonitor-instances` toggles it.
+
+Direct sampling is free, arbitrary-resolution and was right every time:
+
+```bash
+IF=$(ip -o -4 route show default | awk '{print $5}')
+A=$(cat /sys/class/net/$IF/statistics/rx_bytes); sleep 10
+B=$(cat /sys/class/net/$IF/statistics/rx_bytes); echo $(( (B-A)/10/1000000 )) MB/s
+# disk: field 6 = sectors read, field 10 = sectors written, x512 for bytes
+awk '$3=="md0"{print $6, $10}' /proc/diskstats
+```
+
+CloudWatch remains the right tool for one thing: comparing instances against each other over time
+without SSH. A bimodal split across a fleet shows up instantly there and is invisible from a
+single box.
+
+**`describe-instances` has no metrics at all** -- it is metadata only. There is no fine-grained
+AWS-side alternative worth using here.
+
+**Memory is a non-issue for this workload, and the numbers look alarming if you misread them.**
+Seastar reserves ~16 TB of *address space* (`VmSize`) while touching only 3-15 GB resident
+(`VmRSS`) out of 247 GB. Dirty pages stayed ~1 MB even at 2.3 GB/s of writes, i.e. XFS flushed as
+fast as the workload produced. `-m` never needed setting.
+
+**Derive ETAs from a measured rate against a measured total, not from cumulative counters.**
+`tx_bytes` is cumulative since boot, so it included the previous phase and an earlier crashed
+attempt -- using it overstated progress. `du -sb` of the corpus divided by the sampled egress rate
+gave an ETA accurate to the minute, because the rate was pinned at NIC saturation with no variance.
+
 ### Multi-phase fleet work, and how 19 TB was destroyed (2026-07-27)
 
 **Automatic teardown must trigger on "all work finished", never on "nothing running".** A reaper
