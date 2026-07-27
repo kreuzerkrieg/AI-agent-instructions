@@ -376,6 +376,59 @@ auto-shutdown watcher in `arm-instance-setup.md §7`, swapping `stop-instances` 
 
 ## 10. Lessons Learned
 
+### Multi-phase fleet work, and how 19 TB was destroyed (2026-07-27)
+
+**Automatic teardown must trigger on "all work finished", never on "nothing running".** A reaper
+that terminated a fleet after three consecutive idle checks destroyed 19.4 TB of accumulated
+corpus, because the gap between a finished download phase and a not-yet-started upload phase is
+indistinguishable from an abandoned fleet. The reaper log shows it counting `idle round 1/3`,
+`2/3`, `3/3` while the corpus sat on ephemeral NVMe. Automatic teardown on completion is fine --
+the bug is defining completion as one phase when the job has two.
+
+**Chain the phases in one remote session, so completion means completion:**
+
+```bash
+ssh -n host "cd /work && screen -dmS run bash -c './run.sh --mode download ... > dl.txt 2>&1 && \
+                                                  ./run.sh --mode upload   ... > ul.txt 2>&1'"
+```
+
+With this, "no process running" genuinely means every phase is done, and an idle check becomes a
+correct completion test rather than a premature one.
+
+**If a phase is not in the automation, it will not happen.** The driver's `run()` only ever issued
+the download command; the upload existed solely as a manual invocation that was meant to be fired
+afterwards, and never was. Grepping the driver for the second phase returned nothing. Anything
+described as "and then we do X" must be *in* the script, not in the plan.
+
+**Never pause to analyse while a fleet holds unsaved data.** The window between the download
+finishing and the reaper firing was 4.5 minutes, and it was spent on instance-sizing analysis and
+an unrelated bug fix. Get the data off the boxes, or start the next phase, before doing anything
+else.
+
+**Put `screen` in the dependency list.** It is required to start the workload at all, is not in
+the Fedora Cloud Base image, and was being installed by hand during manual runs -- so the first
+automated chained launch failed on every box with `screen: command not found`.
+
+**Match the filesystem and RAID geometry to production, and know whether it is in the measurement
+path.** For a Scylla-shaped workload the authoritative recipe is
+`dist/common/scripts/scylla_raid_setup`: RAID-0 with **`-c1024`** chunks and
+**`mkfs.xfs -K -m rmapbt=0 -m reflink=0`**, not ext4 on mdadm's default 512 KB chunk. This is not
+cosmetic when the workload writes what it downloads: in the S3 client the disk write is the
+consumer that decides whether a large object is fetched as one ranged GET or as many 5 MiB
+chunks, a 19x difference in request rate. Filesystem performance therefore moves the number being
+measured.
+
+**Size instances from measurement, not from the spec sheet.** The i4i/i7i families scale
+perfectly linearly in vCPU, NIC and price, so there is no sweet spot to find on paper. Measure
+achieved throughput first, then pick the size where something is actually near saturation --
+a bigger NIC just lowers utilisation. Beware that different phases can favour different shapes:
+a download that writes to disk is drive-bound, while upload concurrency scales with shard count.
+
+**Spot for storage-optimized families is frequently unavailable outright.** `i4i`/`i7i` 8xlarge
+returned `InsufficientInstanceCapacity` for spot in every AZ tried, with placement scores of 1
+region-wide. Try spot then on-demand *per candidate* and record which was used; do not abandon
+spot pre-emptively, and do not expect a pricier AZ to help -- price does not predict capacity.
+
 ### Driving a real multi-instance fleet (2026-07-27)
 
 Six attempts to run a 6-instance fleet, five of which failed. **Every failure was
