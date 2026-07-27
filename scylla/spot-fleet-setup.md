@@ -376,6 +376,98 @@ auto-shutdown watcher in `arm-instance-setup.md §7`, swapping `stop-instances` 
 
 ## 10. Lessons Learned
 
+### Driving a real multi-instance fleet (2026-07-27)
+
+Six attempts to run a 6-instance fleet, five of which failed. **Every failure was
+orchestration plumbing, not the workload.** The lessons are mostly about resisting the urge
+to build a driver.
+
+**Use `screen`, not `nohup`, to start remote work.** This is the single most valuable item.
+
+```bash
+ssh -n host "cd /work && screen -dmS run bash -c './run.sh ARGS > /work/out.txt 2>&1'"
+```
+
+`ssh host "nohup cmd &"` does **not** reliably return: ssh keeps the channel open while the
+backgrounded process holds the session's stdin, so the call blocks until the *whole job*
+finishes. On a 10-minute job across 6 boxes that serialises the fleet — measured start times
+were **10 min 24 s apart**, with box 1 finishing 23 s before box 2 began, so there was never
+any concurrent load. Adding `ssh -n` and `< /dev/null` on the remote side did **not** fix it.
+`screen -dmS` detaches properly: ssh returned in 2 s and all six binaries started **within the
+same second**.
+
+Two traps with it: keep the `> out.txt 2>&1` redirect (screen's buffer dies with the session,
+taking your logs), and `dnf install -y screen` first — it is not in the Cloud Base image.
+
+**Don't build an orchestration driver.** A `launch → setup → run → collect → teardown` script
+accumulated five distinct bugs: heredoc quoting mangling `"$@"`, `pgrep` self-matching, wrong
+disk detection, ssh not returning, and `wait` blocking on the watchdog. Discrete verifiable
+steps run straight from your shell — scp, screen, read the file — get there far faster.
+
+**`pgrep` for "is it still running" is a minefield.**
+- `pgrep -f NAME` **self-matches**: the polling shell's own command line contains the pattern,
+  so the answer is always yes. A wait loop built on it never exits.
+- `pgrep -x NAME` is worse for names over 15 characters: the kernel truncates `comm` to 15, so
+  it silently matches nothing and pgrep warns about it. That fails in the opposite direction —
+  every wait exits immediately.
+- Working form: `pgrep -f '[p]erf_s3_downloader'`. The character class stops the pattern from
+  matching its own literal text.
+
+**Identify instance-store disks by model, not by excluding the root disk.** Fedora roots on
+btrfs, so `findmnt -no SOURCE /` returns `/dev/nvme0n1p3[/root]`. That subvolume suffix is not a
+device path, `lsblk -no PKNAME` on it yields nothing, and a `grep -v "$(...)"` built from it then
+filters out *every* disk. Under `set -e` the failing grep aborts the script before `mkdir`, so
+setup dies silently. Use:
+
+```bash
+mapfile -t DRIVES < <(lsblk -dno NAME,MODEL | grep 'Instance Storage' | awk '{print "/dev/"$1}')
+```
+
+**Make setup prove success, and abort the run if it did not.** Echoing "ready" after the ssh call
+regardless of its exit status meant six broken instances reported ready and the failure only
+surfaced later, mid-run. Have the remote script print a sentinel (`SETUP_OK`) only after the
+binary resolves its libraries *and* runs `--help`, gate on that, and refuse to start the round if
+any box failed.
+
+**Verify the binary on the instance, every time.** Twice a stale binary was deployed — once
+four hours old — and the run silently exercised old behaviour. `md5sum` both sides, and grep the
+binary (or run `--help`) for a string only the new build has. Note `strings` misses short
+literals; `grep -a` or `--help` is more reliable.
+
+**A driver dies with your session; use two layers of teardown.** An orphaned 6-instance fleet
+billed for 32 minutes because the controlling session ended and took the driver's EXIT trap with
+it. Run the driver under `setsid`, *and* arm an independent detached watchdog at launch:
+
+```bash
+setsid nohup bash -c "sleep 5400
+  ids=\$(aws ec2 describe-instances --filters 'Name=tag:Name,Values=$FLEET' \
+    'Name=instance-state-name,Values=pending,running,stopping,stopped' \
+    --query 'Reservations[].Instances[].InstanceId' --output text)
+  [ -n \"\$ids\" ] && aws ec2 terminate-instances --instance-ids \$ids" >/dev/null 2>&1 < /dev/null &
+disown
+```
+
+`disown` matters: a bare `wait` elsewhere in the script will otherwise block on the watchdog's
+`sleep`, which is exactly what stopped one run from ever starting.
+
+**`kill -9` the driver when you want to keep the instances**; a normal kill runs its EXIT trap and
+tears the fleet down. Conversely `pkill -f s3-fleet.sh` will match — and kill — your own shell.
+
+**Try spot first, fall back to on-demand per candidate.** Spot is 2-3x cheaper and usually
+available *somewhere*, but `InsufficientInstanceCapacity` in the cheapest AZ is routine and
+storage-optimized families can score 1 (worst) on
+`aws ec2 get-spot-placement-scores` across every AZ. Do not conclude "use on-demand" from that
+alone, and do not chase a pricier AZ either — price does not predict interruption. Walk
+family x AZ cheapest-first, attempting spot then on-demand for each, and tag the market on the
+instance so the run record shows what it actually got. Losing 2 of 6 to reclaim mid-run (observed
+here, 9 minutes in) invalidates the measurement, so tag and check the survivor count before
+recording a result.
+
+**Pick one instance type for the whole experiment.** Switching families between phases makes
+results unrelatable. Check what *every* phase needs first: a download-only run has no use for
+local NVMe, but if a later phase reads that data back, an EBS-only box would measure a 125 MB/s
+gp3 volume instead of the thing under test.
+
 ### First exercise of this runbook (2026-07-26)
 
 Launched one i4i.8xlarge spot in us-east-1f to run `perf_s3_downloader` against a real S3
