@@ -376,6 +376,25 @@ auto-shutdown watcher in `arm-instance-setup.md §7`, swapping `stop-instances` 
 
 ## 10. Lessons Learned
 
+### A per-node-prefix fleet cannot scale past the node count (2026-07-28)
+
+`s3-fleet.sh run()` handed each instance one of the six per-node backup prefixes via
+`${NODES[$i]}`. That works for exactly six instances and **fails silently above it**: for `i >= 6`
+the array subscript expands to empty, so the prefix collapses from
+`$SRC_PREFIX/<host_id>/` to `$SRC_PREFIX/`, and every instance from the seventh onward is handed the
+*whole* dataset. The fleet still runs, still reports plausible throughput, and quietly measures
+overlapping work — the worst kind of failure, because nothing looks broken.
+
+Fixed by switching to the harness's own fleet split: `--fleet_size <n> --fleet_index <i>`, where the
+instance takes the sstables whose position in the ordered listing is congruent to its index. That
+scales to any fleet size, is exactly balanced, and needs no coordinator (S3 lists keys
+lexicographically, so every box derives the same order). Verified against the real 306k-key listing:
+four slices summed exactly to the total.
+
+General rule: any fleet driver that maps instances onto a **fixed list** of work units has a silent
+ceiling at the length of that list. Either assert `n <= ${#LIST[@]}` and refuse to start, or derive
+the partition arithmetically from the fleet size.
+
 ### Driving a fleet over ssh: six ways it silently does nothing (2026-07-27)
 
 A sizing sweep produced six distinct failures, none of which were test findings — all were driver
