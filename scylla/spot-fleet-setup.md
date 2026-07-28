@@ -376,6 +376,31 @@ auto-shutdown watcher in `arm-instance-setup.md §7`, swapping `stop-instances` 
 
 ## 10. Lessons Learned
 
+### A self-terminating instance must ship its logs before it dies (2026-07-28)
+
+A one-shot copy job was run unattended on a t3.xlarge launched with
+`--instance-initiated-shutdown-behavior terminate`, and the script ended with `sudo shutdown -h now`
+so the box destroyed itself the moment the work finished. That part worked exactly as intended and
+is the right pattern for unattended work — nothing can bill indefinitely, and a backstop
+`shutdown -h +300` armed *before* any work covers a hang.
+
+What it got wrong: the job's own output lived only in `copy.log` **on that instance**. Completion and
+self-destruction are the same event, so the final summary — object counts, failures, and the SlowDown
+count, which was a free datapoint about the layout being written — vanished with the box. What
+survived was only what happened to be polled while it ran.
+
+**Correct approach:** before `shutdown`, push the log somewhere durable. It costs one line and the
+bucket is already there:
+
+```bash
+aws s3 cp /home/fedora/copy.log "s3://$BUCKET/logs/$(hostname)-$(date +%s).log" || true
+sudo shutdown -h now
+```
+
+Generally: for any self-terminating job, treat "upload the log" as part of the job, not as an
+afterthought for the operator. Polling a running job is not a substitute — the most valuable output
+is usually the final summary, which is produced exactly when the box is about to disappear.
+
 ### A per-node-prefix fleet cannot scale past the node count (2026-07-28)
 
 `s3-fleet.sh run()` handed each instance one of the six per-node backup prefixes via
