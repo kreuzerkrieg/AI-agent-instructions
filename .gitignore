@@ -13,6 +13,8 @@
 
 # Whitelist instruction files
 !global-agents.instructions.md
+!playbooks/
+!playbooks/**
 !scylla/
 !scylla/**
 !personal/

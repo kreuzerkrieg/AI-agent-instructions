@@ -431,7 +431,7 @@ loop finishes (so it doesn't sit running and billing after the test):
 ```bash
 #!/bin/bash
 # /tmp/watch-and-shutdown.sh
-SCRATCH=~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/scylladb-repro-results.md
+SCRATCH="$(ls -dt ~/.config/JetBrains/CLion*/ | head -1)scratches/GitHubCopilot/scylladb-repro-results.md"
 INSTANCE_ID=i-05ccc6ae22cf5bc94
 REGION=us-east-1
 AWS_PROFILE=797456418907-DevOpsAccessRole

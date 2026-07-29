@@ -2,7 +2,7 @@
 
 > **Canonical source:** this file is tracked in the AI-agent-instructions repo at
 > `scratch/_internal-README.md` and seeded into
-> `~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/_internal/README.md`.
+> `~/.config/JetBrains/CLion<version>/scratches/GitHubCopilot/_internal/README.md`.
 > If this local copy is absent or older than the repo template, re-copy it from the repo.
 > Do **not** put machine-specific content here — keep that in `INVENTORY.md` (local, untracked).
 

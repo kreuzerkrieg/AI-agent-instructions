@@ -1156,7 +1156,7 @@ ssh -o StrictHostKeyChecking=no -i ~/.ssh/scylla_test_id_ed25519 ubuntu@$RUNNER 
 
 All generated analysis files go to the CLion scratches directory:
 ```
-~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/
+~/.config/JetBrains/CLion<version>/scratches/GitHubCopilot/
 ```
 
 Naming convention: `sct_run_<suffix>_<report_type>.md`

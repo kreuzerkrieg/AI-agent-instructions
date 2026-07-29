@@ -1213,7 +1213,7 @@ User says `$debunk <URL>` where URL is a PR bot comment containing CI failure re
 
 ### Output (draft file for user review)
 
-Save to `~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/analyze-ci-PR<number>-build<N>.md`:
+Save to `~/.config/JetBrains/CLion<version>/scratches/GitHubCopilot/analyze-ci-PR<number>-build<N>.md`:
 
 1. **Verdict table** — one row per failed test with: test name, verdict, evidence summary, Jira link (existing or "new needed")
 2. **For "new issue" candidates** — full Jira issue draft (following the template in "Step 6: Create Jira issue" above)

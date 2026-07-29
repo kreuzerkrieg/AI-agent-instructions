@@ -25,32 +25,6 @@
 
 ---
 
-## Table of Contents
-
-- [MANDATORY FIRST ACTIONS — Execute Before Anything Else](#-mandatory-first-actions--execute-before-anything-else)
-- [Project-Specific Instructions](#project-specific-instructions)
-- [Copilot OOM Prevention](#copilot-oom-prevention)
-- [Scratch / Temporary Files (CLion-specific)](#scratch--temporary-files-clion-specific)
-- [MCP Discovery — Opportunistic Search for New Tools](#mcp-discovery--opportunistic-search-for-new-tools)
-- [Markdown Conversion — Tool Routing](#markdown-conversion--tool-routing)
-- [Export Copilot IntelliJ Chat History](#export-copilot-intellij-chat-history)
-- [Prior-Conversation Search](#prior-conversation-search)
-- [`$cmd` — List All Commands](#cmd--list-all-commands)
-- [Jira Integration (Atlassian MCP)](#jira-integration-atlassian-mcp)
-- [Verify Everything — Trust Nothing](#verify-everything--trust-nothing)
-- [Code Review Principles](#code-review-principles)
-- [Engineering Principles](#engineering-principles)
-- [Terminal Command Rules](#terminal-command-rules)
-- [Version Control for Instruction Files](#version-control-for-instruction-files)
-- [Secret Scanning — Git Hooks](#secret-scanning--git-hooks)
-- [Commit Organization](#commit-organization)
-- [PR Cover Letter](#pr-cover-letter)
-- [Refine PR](#refine-pr)
-- [PR Interaction Workflow](#pr-interaction-workflow)
-- [Lessons Learned — Self-Updating Section](#lessons-learned--self-updating-section)
-
----
-
 ## ⚠️ MANDATORY FIRST ACTIONS — Execute Before Anything Else
 
 **These steps MUST be the very first tool calls in every session/conversation, before responding to the user's question or performing any task.** No exceptions. Do not skip them even if the user's request seems urgent or trivial.
@@ -122,21 +96,54 @@ A finding only belongs in this repo once it has outlived its task and become a r
 
 ---
 
-## Copilot OOM Prevention
+## Playbooks — Load On Demand
 
-Large C++ projects (ScyllaDB ~62k files, ClickHouse ~714k files) crash the Copilot language server via V8 heap exhaustion. Every workspace with >50k files needs a `.copilotignore` at the repo root.
+Procedures that are only needed at a specific moment live in `playbooks/`. They are **not** loaded at
+session start. Read the file when its trigger fires, and do not preload them "just in case".
 
-**Full documentation:** `~/.config/github-copilot/intellij/copilot-oom-prevention.md`
+| Playbook | Load when |
+|----------|-----------|
+| `playbooks/pr-workflow.md` | Creating a PR, writing or reviewing a cover letter, `$plan-review`, `$finalize-review`, "refine PR", replying to or resolving review threads |
+| `playbooks/commit-splitting.md` | Splitting a WIP commit or reorganizing a commit series |
+| `playbooks/machine-setup.md` | Provisioning a new machine or clone: gitleaks hooks, `.copilotignore` / Copilot OOM, AWS credential refresh |
+| `playbooks/chat-history-export.md` | Exporting Copilot/CLion transcripts, rebuilding the `ai-search` indexes |
+| `playbooks/mcp-and-jira.md` | Jira or Confluence work, or evaluating a new MCP server |
 
-Quick reference — the global `NODE_OPTIONS=--max-old-space-size=8192` is set in `~/.config/environment.d/copilot.conf`. When opening any new large project, run the assessment commands from the doc to identify heavy directories and create a `.copilotignore`.
+The rules those procedures must obey stay here in the core file — a playbook carries mechanics, never
+a rule you could violate without knowing to look it up.
+
+---
+
+## Search Prior Conversations Before Re-Deriving
+
+Past sessions across agents are exported to `~/ai-history-archive/` and indexed locally. Before
+re-deriving something that may already be solved — a tricky build failure, a review decision, an
+incident, a config fix — search that history first:
+
+```bash
+ai-search buffered_readable_file                     # keyword (BM25/FTS5): code, symbols, error strings
+ai-search -s "how did we avoid streaming sstables"   # semantic: "how did I..." recall
+```
+
+Mechanics, flags, and index rebuilding: `playbooks/chat-history-export.md`.
+
+---
+
+## Jira and MCP — Quick Routing
+
+Jira and Confluence are reachable through the **Atlassian MCP server** in `mcp.json` (OAuth via
+browser, no token needed; instance `https://scylladb.atlassian.net`). If those tools are absent from
+the session, say so rather than inventing results — see *Verify Everything*. Details, REST fallback,
+and the rule for evaluating new MCP servers: `playbooks/mcp-and-jira.md`.
 
 ---
 
 ## Scratch / Temporary Files (CLion-specific)
 When creating **any** temporary or scratch files — analysis docs, migration call-chain notes, diagrams, test timing reports, query results, generated tables, or any other output that is not a source-code change — save them under the CLion scratches directory instead of polluting the repository tree:
 ```
-~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/
+~/.config/JetBrains/CLion<version>/scratches/GitHubCopilot/
 ```
+Resolve `<version>` from the newest directory present: `ls -dt ~/.config/JetBrains/CLion*/ | head -1`. The path is pinned to the CLion major version and does **not** follow an IDE upgrade, so a stale hard-coded version silently writes into an abandoned directory.
 Create the directory if it does not exist. **Never** place such files inside the repository working tree. This applies even when the user asks you to "build a table" or "save the results" — always default to the scratches directory unless the user explicitly specifies a different path.
 
 ### Two-tier layout: user-facing vs agent-internal
@@ -167,42 +174,13 @@ the area's purpose + cleanup policy and is tracked canonically in this repo at
 `_internal/README.md` is **absent or older than** the repo template, copy it over:
 ```bash
 SRC=~/.config/github-copilot/intellij/scratch/_internal-README.md
-DST=~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/_internal/README.md
+DST="$(ls -dt ~/.config/JetBrains/CLion*/ | head -1)scratches/GitHubCopilot/_internal/README.md"
 mkdir -p "$(dirname "$DST")"
 [ ! -f "$DST" ] || [ "$SRC" -nt "$DST" ] && cp "$SRC" "$DST"
 ```
 Keep machine-specific item tracking in a separate **local** `_internal/INVENTORY.md` (untracked) —
 a short table of each item, its purpose, and when it's safe to delete — so the README stays a
 clean, overwrite-safe copy of the repo template.
-
----
-
-## MCP Discovery — Opportunistic Search for New Tools
-
-When you encounter a **tool, service, or platform** during the session that is:
-1. mentioned in the codebase, instructions, or by the user, **and**
-2. not already configured as an MCP server (check `~/.config/github-copilot/intellij/mcp.json`), **and**
-3. a persistent service (not ephemeral infrastructure that only exists during test runs)
-
-…then **once per session**, do a background search for an MCP server:
-```
-search GitHub: "mcp server <tool-name>" sorted by stars
-```
-Also check **[cursor.directory](https://cursor.directory/)** — a community-curated directory of MCP servers. It aggregates servers across categories and can surface options that GitHub search misses.
-
-**Evaluation criteria** (all must be met to recommend):
-- ≥100 stars (maturity signal)
-- Official or well-maintained (recent commits, not archived)
-- The user actually interacts with the tool regularly (not just referenced in docs)
-- The tool has a stable, persistent endpoint the agent can connect to
-
-**If a good candidate is found**, briefly mention it to the user: *"Found an MCP server for X (N stars, official). Want me to add it?"* — do not add it without asking.
-
-**If nothing qualifies**, silently move on. Do not mention failed searches.
-
-**Track searched tools** in memory for the session to avoid redundant searches. Only search once per tool per session.
-
-**Never use `--prerelease allow` in an MCP `uvx` config** unless an alpha is specifically needed. It once resolved pydantic to `2.14.0a1`, which dropped a symbol the `mcp` SDK imports, crashing the server on startup. Pin the transitive constraint to the latest stable major instead: `--with 'pydantic>=2.10,<2.14'`. To debug an MCP startup `ImportError`: read the traceback, find the resolved archive under `~/.cache/uv/archive-v0/<hash>/lib/python*/site-packages/`, check the installed version, then tighten the constraint in `mcp.json`.
 
 ---
 
@@ -237,79 +215,6 @@ When a hosted MCP connector reports "MCP server session expired", first check wh
 
 ---
 
-## Export Copilot IntelliJ Chat History
-
-The GitHub Copilot IntelliJ plugin (CLion / IDEA / Rider / PyCharm / …) stores
-past **agent-mode** conversations in a bundled **Nitrite v4 embedded DB**
-(H2 MVStore file format) — **not** in `copilot-intellij.db` (that's just plugin
-UI state, a single `state` KV table).
-
-**Where the real transcripts live:**
-
-- `~/.config/github-copilot/<ide>/chat-agent-sessions/<sid>/copilot-agent-sessions-nitrite.db`
-  — full agent transcripts (`NtAgentSession`, `NtAgentTurn`, `NtAgentWorkingSetItem`).
-- `~/.config/github-copilot/<ide>/bg-agent-sessions/<sid>/*.db` — background-agent state.
-- `~/.config/github-copilot/<ide>/chat-sessions/*.xd` and `chat-edit-sessions/*.xd`
-  — old "plain chat" and edit-mode state in **Xodus** binary format. Verified to hold
-  metadata only, no transcript prose.
-
-`<ide>` is `cl` (CLion), `id` (IDEA), `rd` (Rider), `py` (PyCharm), etc.
-
-**Exporter tooling** lives in this repo at `copilot-history-export/`:
-
-```bash
-cd ~/.config/github-copilot/intellij/copilot-history-export
-./export_all.sh                            # → ~/ai-history-archive/copilot-clion/
-./export_all.sh /custom/out                # custom output dir
-PLUGIN_LIB=/path/to/lib ./export_all.sh    # override plugin lib dir
-```
-
-The script auto-discovers the newest bundled `github-copilot-intellij/lib/` under
-`~/.local/share/JetBrains/*/`, compiles the Java extractor if needed, iterates
-every Nitrite DB across every IDE variant, dumps each to JSON, and renders one
-Markdown file per session (`YYYY-MM-DD_<title-slug>_<sid8>.md`) with full turns:
-user prompt, thinking blocks, prose reply, and each tool call with input + full
-result output. If `gitleaks` + `~/.gitleaks.toml` are installed it also writes
-`_secrets-scan.json` next to the transcripts.
-
-**Read-only wrt source:** `DumpNitrite` copies each `.db` to `/tmp` before opening
-(H2 MVStore may perform recovery writes even in `readOnly=true`). Nothing in
-`~/.config/github-copilot/` is modified.
-
-**Cadence:** re-run any time you want to feed new conversations into
-`~/ai-history-archive/copilot-clion/` — then rebuild the search indexes (see
-next section). Roughly weekly is sensible. **Runs are incremental** (state in
-`<OUT>/_export_state.json`): DBs whose mtime hasn't advanced are skipped, and
-sessions whose latest turn hasn't advanced are not re-rendered. Pass `--full`
-to force a complete re-export.
-
-**Secrets warning:** transcripts contain raw terminal output — expect real
-credentials (Jenkins tokens in `curl -u`, AWS STS keys, WARP JWTs, etc.).
-**Never commit the export directory to a git remote without scrubbing.** See
-the tool's `README.md` for full implementation notes.
-
----
-
-## Prior-Conversation Search
-
-Past AI-assistant conversations across agents (opencode, Copilot/CLion) are
-exported to `~/ai-history-archive/` and indexed locally. **Before re-deriving
-something that may already have been solved** — a tricky build failure, a review
-decision, an incident, a config fix — search that history first via `ai-search`:
-
-```bash
-ai-search buffered_readable_file                     # keyword (BM25/FTS5): code, symbols, error strings
-ai-search -s "how did we avoid streaming sstables"   # semantic (-s): meaning-based "how did I..." recall
-```
-
-Flags: `--agent {opencode,copilot-clion}`, `--after`/`--before YYYY-MM-DD`,
-`-n/--limit`. Each hit prints the source transcript path. Fully on-box (SQLite
-FTS5 + local Ollama embeddings — nothing leaves the machine). Rebuild after
-re-exporting: `python3 ~/ai-history-archive/_index/build_index.py` (keyword) and
-`build_embeddings.py` (semantic). Details: `~/ai-history-archive/_index/README.md`.
-
----
-
 ## `$cmd` — List All Commands
 
 When the user types **`$cmd`**, list all defined `$`-prefixed commands with a one-line description of each. Scan both global and project-specific instruction files for command definitions. Current commands:
@@ -317,8 +222,8 @@ When the user types **`$cmd`**, list all defined `$`-prefixed commands with a on
 | Command | Defined in | Description |
 |---------|-----------|-------------|
 | `$cmd` | global | List all defined `$` commands |
-| `$plan-review` | global | Phase 1: plan responses to PR review comments (no changes until approved) |
-| `$finalize-review` | global | Phase 2: execute approved plan from `$plan-review` |
+| `$plan-review` | `playbooks/pr-workflow.md` | Phase 1: plan responses to PR review comments (no changes until approved) |
+| `$finalize-review` | `playbooks/pr-workflow.md` | Phase 2: execute approved plan from `$plan-review` |
 | `$debunk <URL>` | scylladb | Triage a PR bot CI failure comment — verify each claim, propose Jira issues |
 | `$analyze-ci` | scylladb | Analyze PR/CI test failures by error signature, classify, and draft Jira issues |
 
@@ -326,42 +231,17 @@ When the user types **`$cmd`**, list all defined `$`-prefixed commands with a on
 
 ---
 
-## Jira Integration (Atlassian MCP)
+## Prose Style
 
-Jira access is available via the **Atlassian MCP server** configured in `~/.config/github-copilot/intellij/mcp.json`:
+Applies to PR bodies, commit message bodies, review replies, and status reports:
 
-```json
-"atlassian": {
-  "type": "http",
-  "url": "https://mcp.atlassian.com/v1/mcp"
-}
-```
+- No marketing adjectives: seamless, robust, powerful, cutting-edge, effortless, next-generation.
+- Active voice with a named actor: "the parser reads the file", not "the file is read".
+- Use a verb for an action: "analyze the log", not "perform an analysis of the log".
+- Prefer the short word: use/utilize, start/initiate, make sure/ensure, about/regarding.
+- One name for one thing — do not alternate between two names for the same component.
 
-### How it works
-- The MCP server uses **OAuth via browser** — no API token needed. Authentication goes through the org's Okta SSO.
-- On first use in a session, Copilot connects to the MCP server which handles auth transparently.
-- The Jira instance is `https://scylladb.atlassian.net`.
-
-### Capabilities
-Once connected, the agent can:
-- Search Jira issues (JQL queries)
-- Create issues (tasks, subtasks, bugs, stories)
-- Update issues (status, assignee, description, labels)
-- Add comments
-- Read Confluence pages
-
-### Usage notes
-- The user may need to say "use Atlassian MCP" or similar in their prompt to hint that Jira tools should be used.
-- If the MCP tools are not available in the current session's tool list, the Atlassian MCP server may not be connected — ask the user to check MCP server status in CLion settings.
-
-### Alternative: API token via ~/.netrc
-If MCP is unavailable, Jira can also be accessed via REST API with an API token stored in `~/.netrc`:
-```
-machine scylladb.atlassian.net
-  login your.email@scylladb.com
-  password YOUR_JIRA_API_TOKEN
-```
-Generate tokens at: https://id.atlassian.com/manage-profile/security/api-tokens (requires admin permission).
+For longer prose (READMEs, docs, release notes), the `ste-writing` skill in `~/.claude/skills/ste-writing/` applies the full ASD-STE100 rule set. Use its **STE-flavored** mode, not **strict** — strict caps sentences at 20 words and locks the vocabulary to a ~900-word dictionary, which conflicts with the Specificity Rule in `playbooks/pr-workflow.md` and strips necessary technical nouns. Do not adopt its optional "no em dash" rule.
 
 ---
 
@@ -516,45 +396,6 @@ This replaces the old backup-file approach — git history provides full version
 
 ---
 
-## Secret Scanning — Git Hooks
-
-Every machine and repo must have **gitleaks** pre-commit/pre-push hooks installed. These hooks
-stop credentials from ever being committed or pushed.
-
-### New-machine setup (run once per machine)
-
-```bash
-# 1. Install gitleaks
-sudo dnf install gitleaks          # Fedora/RHEL
-# brew install gitleaks             # macOS
-
-# 2. Install the custom config (catches Jenkins tokens, netrc patterns, etc.)
-cp ~/.config/github-copilot/intellij/scylla/gitleaks.toml ~/.gitleaks.toml
-
-# 3. Install hooks into any repo you work with
-bash ~/.config/github-copilot/intellij/scylla/bin/install-secret-hooks ~/Development/scylladb
-bash ~/.config/github-copilot/intellij/scylla/bin/install-secret-hooks ~/.config/github-copilot/intellij
-# Run for any other repos as needed
-```
-
-### What the hooks catch
-- **pre-commit**: scans the staged diff before every commit — blocks the commit if a secret is found
-- **pre-push**: scans all unpushed commits before push — last-chance safety net
-- Custom rules cover: Jenkins API tokens (hex 32-40 chars), netrc `password` lines, high-entropy strings near credential keywords, GitHub PATs (`ghp_...`), AWS access keys
-
-### If a hook fires
-1. Remove the secret from the file
-2. Use a placeholder: `<JENKINS_API_TOKEN>`, `<YOUR_PASSWORD>`, etc.
-3. `git add` and retry the commit
-4. If it's a genuine false positive (e.g., a test vector): `git commit --no-verify` — but use this extremely rarely and only after confirming it's not a real credential
-
-### If a secret was already committed
-1. `git-filter-repo --replace-text <(echo 'SECRET==>PLACEHOLDER')` — rewrites all history
-2. `git push --force`
-3. **Rotate the credential immediately** — assume it's compromised
-
----
-
 ## Commit Organization
 
 ### Principles
@@ -645,76 +486,6 @@ callers to use .local(), and also clean up includes
 - **Infrastructure changes vs. feature code** — change a parameter type (e.g., `T&` → `sharded<T>&`) in one commit, use the new capability in the next.
 - **Tests vs. implementation** — test changes in their own commit (unless trivially small and tightly coupled).
 
-### How to Split Commits for Review
-
-When preparing commits for contribution — whether splitting a single WIP
-commit or reorganizing a series of commits that don't follow the
-granularity guidelines above — use this procedure.
-
-#### 1. Analyze the diff
-```bash
-git diff HEAD~1 HEAD          # Review the full change
-git diff HEAD~1 HEAD --stat   # See which files changed
-```
-
-#### 2. Identify logical groups
-Categorize each change into one of:
-- **Pure refactoring** — extracting constants, renaming, moving code without behavior change
-- **Schema/model changes** — new columns, struct fields, type changes
-- **Formatting** — re-indentation, line wrapping, whitespace-only changes
-- **New methods/APIs** — declarations + implementations of new functionality
-- **Infrastructure/plumbing** — type changes, include cleanup, parameter changes
-- **Feature wiring** — connecting new APIs to call sites
-- **Tests** — new or updated test assertions
-
-#### 3. Determine dependency order
-Build a dependency graph: which changes require others to compile?
-```
-refactoring → schema changes → new methods → plumbing → wiring → tests
-                                              ↑
-                                    formatting (independent)
-```
-
-#### 4. Execute the split
-```bash
-# Save the current state
-git stash                              # Stash any uncommitted work
-WIP_SHA=$(git rev-parse HEAD)          # Remember the WIP commit
-
-# Reset to parent
-git reset --hard HEAD~1
-
-# For each logical commit, apply just those changes:
-#   - Use python/sed for precise file edits, or
-#   - Copy the final file state and use `git add -p` for partial staging
-#   - Verify with: diff <(git show $WIP_SHA:<file>) <file>
-
-# After all commits, verify the final state matches the original:
-git diff $WIP_SHA HEAD --stat          # Should be empty or trivial whitespace
-```
-
-#### 5. Verify
-- `git log --oneline` — read commit subjects as a story; each should make sense alone.
-- `git diff <original_wip> HEAD --stat` — final state should match the original (or improve on it).
-- If you find yourself writing "and" or "also" in a commit message, that's a hint you may need to split further.
-
-### Example Split
-
-A WIP commit that "adds download tracking with progress reporting" might split into:
-
-| Order | Commit | Type |
-|-------|--------|------|
-| 1 | `db: extract snapshot TTL into class constant` | Refactoring |
-| 2 | `db: add downloaded column to snapshot table` | Schema change |
-| 3 | `db: reformat read_row lambda` | Formatting |
-| 4 | `db: add update_download_status method` | New API |
-| 5 | `loader: clean up includes` | Include cleanup |
-| 6 | `loader: change dependency to sharded reference` | Plumbing |
-| 7 | `loader: return shared object from attach method` | Plumbing |
-| 8 | `loader: mark items as downloaded after attaching` | Feature wiring |
-| 9 | `loader: add progress tracking to restore task` | Feature |
-| 10 | `test: verify progress reporting in restore test` | Test |
-
 ### Common Pitfalls
 - **Mixing formatting with logic** — the #1 review complaint. Always separate.
 - **Changing a signature and adding new callers in the same commit** — split into: (1) change signature + update existing callers, (2) add new callers.
@@ -747,209 +518,6 @@ Treat this as "apply the smallest transformation that achieves the migration", n
 - **Consider whether the change would break the test's intent.** Tests are written a specific way for a reason.
 - **Dead code observations may be wrong.** A parameter that looks unused in one function may exist because callers rely on the signature for consistency, or because it documents an intent that will be used in a follow-up. Don't delete parameters just because a reviewer says "dead code" — verify the full picture first.
 - **When in doubt, present your reasoning to the user** rather than silently applying the change. Say "the reviewer suggests X, but I believe the current code is correct because Y — should I apply it anyway?"
-
----
-
-## PR Cover Letter
-
-Every PR needs a **title** and a **description body**. The description should give a reviewer enough context to understand the change without reading every commit first.
-
-### Title
-Use the same `module: short description` format as commit messages. If the PR spans multiple modules, use the primary one or a broader scope.
-
-### Body Format
-- The PR body is rendered as **Markdown** — use `###` headings, `**bold**`, backtick-quoted symbols, etc.
-- Do **not** hard-wrap lines in the PR body; let the platform handle wrapping. Each paragraph should be a single long line.
-- This is different from commit message bodies, which are wrapped at ~72 characters.
-
-### Body Structure
-
-1. **Problem** — what is broken, missing, or inadequate. One or two sentences.
-2. **Changes** — a summary of what the series does, grouped logically. Not a commit-by-commit list — describe the *what* and *why* at a higher level than individual commits.
-3. **Issue reference** — `Fixes: <URL>` on its own line (e.g., `Fixes: https://github.com/org/repo/issues/123` or a JIRA URL).
-4. **Backport decision** — one line stating whether backporting is needed and why:
-    - **Bug fix (especially critical/production)** → backport to all affected supported versions.
-    - **New feature** → no backport needed.
-    - **Refactoring only** → no backport needed.
-
-### Specificity Rule
-
-- **Always name the exact thing that changed.** Never write "Fix a bug" or "Improve performance" without saying what specifically. The reader scanning a changelog needs to know "does this affect me?" — vague entries answer nothing.
-- **For backward-incompatible changes:** always state (a) the old behavior, (b) the new behavior, and (c) how to restore the old behavior when possible. A reader upgrading an existing deployment needs all three.
-
-### Prose style
-
-Applies to PR bodies, commit message bodies, review replies, and status reports:
-
-- No marketing adjectives: seamless, robust, powerful, cutting-edge, effortless, next-generation.
-- Active voice with a named actor: "the parser reads the file", not "the file is read".
-- Use a verb for an action: "analyze the log", not "perform an analysis of the log".
-- Prefer the short word: use/utilize, start/initiate, make sure/ensure, about/regarding.
-- One name for one thing — do not alternate between two names for the same component.
-
-For longer prose (READMEs, docs, release notes), the `ste-writing` skill in `~/.claude/skills/ste-writing/` applies the full ASD-STE100 rule set. Use its **STE-flavored** mode, not **strict** — strict caps sentences at 20 words and locks the vocabulary to a ~900-word dictionary, which conflicts with the Specificity Rule above and strips necessary technical nouns. Do not adopt its optional "no em dash" rule.
-
-### Example
-```
-loader: add progress tracking to restore task
-
-This series adds per-item progress tracking to the restore task. Previously, the task reported no progress — `progress_total` and `progress_completed` were always zero, making it impossible to monitor how far along a restore operation is.
-
-### Changes
-
-A `downloaded` boolean column added to `snapshot_items`, with a method to update it. After each item is attached during restore, it is marked as downloaded.
-
-Infrastructure plumbing: dependency changed to a sharded reference and `attach_item` changed to return the attached object.
-
-A periodic timer that queries `snapshot_items` every 5 seconds and exposes downloaded/total counts via `get_progress()`.
-
-A test assertion verifying `progress_total > 0` and `progress_completed == progress_total` after a successful restore.
-
-Fixes: https://github.com/org/repo/issues/986
-
-No backport needed since this is a new feature.
-```
-
----
-
-## Refine PR
-
-When the user says **"refine PR"**, perform the following sequence:
-
-1. **List all commits** in the PR (e.g., `git log --oneline upstream/master..HEAD` or equivalent for the project's main branch).
-2. **For each commit**, review the diff (`git show <sha>`) and check:
-   - **Commit message**: subject follows `module: short description` format, blank line separates subject from body, body explains *why* not *what*, wrapped at ~72 chars.
-   - **Single logical change**: if the commit message needs "and" or "also", it likely needs splitting.
-   - **No unrelated changes**: formatting fixes, renames, include cleanups, or test skips that don't belong with the functional change must be in separate commits or removed.
-   - **Comments in code**: verify that added comments accurately describe what the code actually does — not what a previous iteration did or what was planned but not implemented.
-   - **No unnecessary changes**: no gratuitous renames, no style-only changes mixed with logic, no dead code additions.
-   - **Blank line hygiene**: scan each commit for `^+$` / `^-$` (blank line additions/removals). Remove any that aren't structurally required by new code.
-3. **Split commits** that contain unrelated changes (e.g., a commit that both changes storage logic and adds test skips should be split so each change goes to its logical home).
-4. **Squash or reorder** commits where one undoes or replaces another (e.g., commit A adds a try/fallback approach, commit B replaces it with a different approach → combine into one commit with the final approach).
-5. **Move misplaced hunks** to the commit they logically belong to (e.g., test skips belong in the commit that adds the test parametrization, not in an unrelated commit).
-6. **Verify compilability**: mentally confirm that each commit in the final sequence compiles independently — removing any later commit should not break the build.
-7. **Final diff check**: `git diff <original_HEAD> HEAD --stat` should show only intentional differences (removed noise, fixed skips, etc.) — no accidental content loss.
-8. **Do NOT push** — wait for explicit user instruction (canonical no-push rule in *Terminal Command Rules*).
-
----
-
-## PR Interaction Workflow
-
-### Tools — GitHub MCP (preferred) + `gh` CLI (fallback)
-
-**Primary:** Use GitHub MCP tools for all PR interactions. They return structured data directly, avoid terminal pager/truncation risks, and don't require JSON parsing.
-
-**Fallback (`gh` CLI):** Use only for operations not covered by MCP:
-- `gh pr edit <number> --remove-label / --add-label` — manage labels (no MCP equivalent)
-- `gh api graphql -f query='mutation { deletePullRequestReviewComment(...) }'` — delete duplicate comments (no MCP equivalent)
-
-### Fetching PR Data
-
-| What | MCP Tool | Method |
-|------|----------|--------|
-| PR metadata (title, body, state, commits) | `pull_request_read` | `get` |
-| PR diff | `pull_request_read` | `get_diff` |
-| Changed files | `pull_request_read` | `get_files` |
-| Review threads (with thread IDs, isResolved) | `pull_request_read` | `get_review_comments` |
-| Reviews (approvals, request-changes) | `pull_request_read` | `get_reviews` |
-| PR comments (non-review) | `pull_request_read` | `get_comments` |
-| CI check runs | `pull_request_read` | `get_check_runs` |
-| Combined commit status | `pull_request_read` | `get_status` |
-
-### PR Review Comments — Two-Phase Workflow
-
-When the user asks to address PR review comments, follow this **two-phase** process:
-
-#### Phase 1: Plan — `$plan-review`
-1. Fetch all review threads via `pull_request_read` with method `get_review_comments`.
-2. For each **unresolved** thread, build a numbered list with:
-   - **File:line** — where the comment is
-   - **Reviewer says** — one-line summary of the comment
-   - **Planned response** — what you intend to do (code change description OR reply-only with reasoning)
-3. **Save the plan to a scratch file** (e.g., `~/.config/JetBrains/CLion2026.1/scratches/GitHubCopilot/plan-review-PR<number>.md`) and open it for the user. This is easier to read than inline agent output.
-4. **Stop and wait** for the user to approve/reject/modify each item.
-
-The user triggers this phase by saying **`$plan-review`**.
-
-#### Phase 2: Execute — `$finalize-review`
-- Apply code changes only for approved items.
-- Post replies only for approved items.
-- Follow the rules below for amending commits, replying, and resolving threads.
-- **Before the user pushes:** remove the `conflicts` label if present: `gh pr edit <number> --remove-label conflicts`
-- ❌ **Do NOT push** — wait for explicit user instruction (canonical no-push rule in *Terminal Command Rules*).
-
-The user triggers this phase by saying **`$finalize-review`**.
-
-**Never make code changes or post replies before the user confirms the plan.**
-
-### Addressing Review Comments (Code Changes)
-1. **Analyze each comment** — verify the reviewer's assumptions against actual code before acting (see "Handling Review Comments" above).
-2. **Make code changes** in the working tree.
-3. **Amend the correct commit** — use `git commit --fixup=<SHA>` + `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1`.
-4. **Separate unrelated fixes** — if a reviewer points out a pre-existing bug or a formatting issue, put the fix in its own commit (not bundled with functional changes).
-5. ❌ **Do NOT push** — wait for explicit user instruction (canonical no-push rule in *Terminal Command Rules*).
-
-### Replying to Review Comments
-- For comments addressed in code: reply with a short confirmation — "Done.", "Addressed.", or "Done — <brief note>." (e.g., "Done — moved to a separate commit.").
-- For pushback: leave as-is for the user to handle, or draft a reply explaining why the current code is correct.
-- Use `add_reply_to_pull_request_comment` with the comment ID from the review thread.
-
-### Resolving Review Threads
-After replying, resolve threads that are fully addressed using `pull_request_review_write` with method `resolve_thread` and the thread's node ID (`threadId`).
-
-To unresolve a thread: use method `unresolve_thread`.
-
-**If duplicate replies occur** (e.g., from a retry after a timeout), delete them via `gh` CLI:
-```bash
-gh api graphql -f query='mutation { deletePullRequestReviewComment(input: {id: "<COMMENT_ID>"}) { pullRequestReviewComment { id } } }'
-```
-
-### Creating Reviews
-Use `pull_request_review_write` with method `create`:
-- With `event` (`APPROVE`, `REQUEST_CHANGES`, `COMMENT`) — creates and submits immediately.
-- Without `event` — creates a **pending review**. Add comments via `add_comment_to_pending_review`, then submit via `pull_request_review_write` method `submit_pending`.
-
-### Managing Labels
-No MCP equivalent — use `gh` CLI:
-- Remove `conflicts` after rebasing: `gh pr edit <number> --remove-label conflicts`
-- Add/remove other labels as appropriate: `gh pr edit <number> --add-label <name>`
-
-### Updating PR Metadata
-Use `update_pull_request` to change title, body, state, draft status, or request reviewers.
-
-### Creating Pull Requests — Mandatory Steps (Global)
-When creating any PR on GitHub, regardless of repository:
-1. Add the `ai-assisted` label: `gh pr edit <number> --add-label ai-assisted`
-2. Assign the PR to the user: `gh pr edit <number> --add-assignee <username>`
-
-Repository-specific checklists (e.g., ScyllaDB) add further required steps on top of these.
-
-**Labels are a separate deliverable from the cover letter, and must agree with it.** Writing a decision in prose does not satisfy a label requirement — stating "no backport needed" in a body while omitting `backport/none` left the user to add the label by hand. Apply every required label in the same `gh pr edit` call as `ai-assisted` and the assignee, and check that each one matches what the body claims. If you cannot tell which label applies (e.g. which versions a fix affects), ask before creating the PR.
-
-### PR Cover Letter Review
-- Review the title and body against the current commit series.
-- Verify the body follows the format defined in "PR Cover Letter" above: Problem → Changes → Issue reference → Backport decision.
-- Update if the commit series has materially changed (new commits added/removed, major restructuring). Minor code-level tweaks don't require body updates.
-
-### Push Summary Comment
-After the **user** pushes changes that address review comments, post a summary comment on the PR using `add_issue_comment` (pass PR number as `issue_number`). ❌ **Do NOT push yourself** (canonical no-push rule) — wait for the user to push, then post this comment. Format:
-```
-v next:
-
-- <change 1>
-- <change 2>
-- ...
-```
-Example:
-```
-v next:
-
-- `is_object_storage()` made pure virtual, added override in subclass
-- removed unrelated changes (gratuitous blank lines, initialization rewrite)
-- logging enhancement split into its own commit
-- extracted unrelated typo fix into a standalone commit
-```
-This helps the reviewer see at a glance what changed without re-reading the full diff. Each bullet should be concise — one line per logical change.
 
 ---
 
