@@ -86,7 +86,7 @@ systemctl --user show-environment | grep NODE_OPTIONS
 
 ### Layer 4: Auto-provisioning on clone (ScyllaDB-specific)
 
-For projects you clone frequently, a git `post-checkout` hook at `~/.config/git/templates/hooks/post-checkout` can auto-install `.copilotignore` on fresh clones. See `scylla/copilot-oom-prevention.md` for the ScyllaDB-specific implementation.
+For projects you clone frequently, a git `post-checkout` hook at `~/.config/git/templates/hooks/post-checkout` can auto-install `.copilotignore` on fresh clones. See `scylla/copilot-oom-provisioning.md` for the ScyllaDB-specific implementation.
 
 ## Quick Setup for Any New Large Project
 

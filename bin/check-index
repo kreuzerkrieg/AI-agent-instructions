@@ -19,16 +19,35 @@ mapfile -t tracked < <(git ls-files '*.md' | grep -v '^personal/')
 
 mapfile -t referrers < <(git ls-files | grep -v '^personal/')
 
+# Basenames shared by more than one tracked file. For these, a basename match
+# proves nothing — a reference to scylla/foo.md would also satisfy foo.md — so
+# they must be referenced by full path.
+mapfile -t ambiguous < <(printf '%s\n' "${referrers[@]}" | xargs -n1 basename | sort | uniq -d)
+
+is_ambiguous() {
+    local b
+    for b in ${ambiguous+"${ambiguous[@]}"}; do [[ "$b" == "$1" ]] && return 0; done
+    return 1
+}
+
 orphans=()
 for f in "${tracked[@]}"; do
     [[ "$f" =~ $EXEMPT ]] && continue
     base=$(basename "$f")
-    # Does any other tracked file mention this file, by basename or path?
+
+    # Full path always counts; bare basename only when it is unambiguous.
+    needles=("$f")
+    is_ambiguous "$base" || needles+=("$base")
+
     # Note: capture into a variable rather than piping to `grep -q` — an early
     # `-q` exit SIGPIPEs the upstream grep, and under `pipefail` that would
     # make every routed file look unrouted.
-    hits=$(printf '%s\n' "${referrers[@]}" | grep -vFx "$f" \
-           | xargs -r grep -lF -- "$base" 2>/dev/null)
+    hits=''
+    for needle in "${needles[@]}"; do
+        hits=$(printf '%s\n' "${referrers[@]}" | grep -vFx "$f" \
+               | xargs -r grep -lF -- "$needle" 2>/dev/null)
+        [[ -n "$hits" ]] && break
+    done
     [[ -z "$hits" ]] && orphans+=("$f")
 done
 

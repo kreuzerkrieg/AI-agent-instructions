@@ -48,10 +48,6 @@ bash ~/.config/github-copilot/intellij/scylla/bin/install-secret-hooks ~/.config
 
 ## Copilot OOM Prevention
 
-Large C++ projects (ScyllaDB ~62k files, ClickHouse ~714k files) crash the Copilot language server via V8 heap exhaustion. Every workspace with >50k files needs a `.copilotignore` at the repo root.
-
-**Full documentation:** `~/.config/github-copilot/intellij/copilot-oom-prevention.md`
-
-Quick reference — the global `NODE_OPTIONS=--max-old-space-size=8192` is set in `~/.config/environment.d/copilot.conf`. When opening any new large project, run the assessment commands from the doc to identify heavy directories and create a `.copilotignore`.
+Covered in full by `copilot-oom-prevention.md` (general) and `scylla/copilot-oom-provisioning.md` (ScyllaDB clones). Read those rather than a summary.
 
 ---
