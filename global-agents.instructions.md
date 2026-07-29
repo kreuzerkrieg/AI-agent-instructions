@@ -689,6 +689,18 @@ Use the same `module: short description` format as commit messages. If the PR sp
 - **Always name the exact thing that changed.** Never write "Fix a bug" or "Improve performance" without saying what specifically. The reader scanning a changelog needs to know "does this affect me?" — vague entries answer nothing.
 - **For backward-incompatible changes:** always state (a) the old behavior, (b) the new behavior, and (c) how to restore the old behavior when possible. A reader upgrading an existing deployment needs all three.
 
+### Prose style
+
+Applies to PR bodies, commit message bodies, review replies, and status reports:
+
+- No marketing adjectives: seamless, robust, powerful, cutting-edge, effortless, next-generation.
+- Active voice with a named actor: "the parser reads the file", not "the file is read".
+- Use a verb for an action: "analyze the log", not "perform an analysis of the log".
+- Prefer the short word: use/utilize, start/initiate, make sure/ensure, about/regarding.
+- One name for one thing — do not alternate between two names for the same component.
+
+For longer prose (READMEs, docs, release notes), the `ste-writing` skill in `~/.claude/skills/ste-writing/` applies the full ASD-STE100 rule set. Use its **STE-flavored** mode, not **strict** — strict caps sentences at 20 words and locks the vocabulary to a ~900-word dictionary, which conflicts with the Specificity Rule above and strips necessary technical nouns. Do not adopt its optional "no em dash" rule.
+
 ### Example
 ```
 loader: add progress tracking to restore task
