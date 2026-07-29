@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Fail if any tracked instruction file is unreachable from the rest of the repo.
+#
+# The routing tables in global-agents.instructions.md are the single source of
+# truth for what exists and when to load it. A file nobody references is a file
+# no agent will ever read, so it is a bug — either route it or delete it.
+#
+# Installed as part of the pre-commit hook by bin/install-secret-hooks.
+# Run manually: bin/check-index
+
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 2
+
+# Files that are entry points or legal boilerplate — nothing needs to point at them.
+EXEMPT='^(README\.md|LICENSE|global-agents\.instructions\.md)$'
+
+# personal/ is a submodule with its own history; do not police it.
+mapfile -t tracked < <(git ls-files '*.md' | grep -v '^personal/')
+
+mapfile -t referrers < <(git ls-files | grep -v '^personal/')
+
+orphans=()
+for f in "${tracked[@]}"; do
+    [[ "$f" =~ $EXEMPT ]] && continue
+    base=$(basename "$f")
+    # Does any other tracked file mention this file, by basename or path?
+    # Note: capture into a variable rather than piping to `grep -q` — an early
+    # `-q` exit SIGPIPEs the upstream grep, and under `pipefail` that would
+    # make every routed file look unrouted.
+    hits=$(printf '%s\n' "${referrers[@]}" | grep -vFx "$f" \
+           | xargs -r grep -lF -- "$base" 2>/dev/null)
+    [[ -z "$hits" ]] && orphans+=("$f")
+done
+
+if (( ${#orphans[@]} )); then
+    printf '\n✖ check-index: %d unrouted instruction file(s):\n\n' "${#orphans[@]}"
+    printf '    %s\n' "${orphans[@]}"
+    cat <<'EOF'
+
+Each file above is tracked but nothing references it, so no agent will load it.
+
+Fix by either:
+  - adding a row to a routing table in global-agents.instructions.md
+    (Project-Specific Instructions, or Playbooks for a playbooks/ file), or
+  - referencing it from the file that owns the topic, or
+  - deleting it if it is obsolete.
+
+Task-specific handoff notes do not belong in this repo at all — see
+"This repo holds durable instructions, not task state" in the core file.
+
+To bypass for one commit: git commit --no-verify
+EOF
+    exit 1
+fi
+
+echo "✓ check-index: all ${#tracked[@]} tracked instruction files are routed"

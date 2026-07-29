@@ -1,77 +1,52 @@
 # AI Agent Instructions
 
-Personal instruction files for AI coding agents (GitHub Copilot, Claude Code) tailored to large C++ projects (ScyllaDB, ClickHouse) and SCT development workflows.
+Personal instruction files for AI coding agents (GitHub Copilot, Claude Code, opencode) tailored to large C++ projects (ScyllaDB, ClickHouse) and SCT development workflows.
 
-## Structure
+## How it works
+
+Three tiers, distinguished by when they load:
+
+| Tier | Loads | Contents |
+|------|-------|----------|
+| **Core** — `global-agents.instructions.md` | Every session, always | Rules an agent could otherwise violate without knowing to look them up: credentials, terminal discipline, verification, commit organization, prose style, scratch-file policy |
+| **Playbooks** — `playbooks/*.md` | On the trigger listed in the core file's *Playbooks* table | Procedures needed only at a specific moment: PR workflow, commit splitting, machine provisioning, chat-history export, Jira/MCP |
+| **Project and reference** — `scylla/*.md`, `clion-code-nav/*.md` | On the trigger listed in the core file's *Project-Specific Instructions* table | Per-repo conventions, cluster investigation, instance setup, metric mappings |
+
+**The two routing tables in `global-agents.instructions.md` are the single source of truth for what exists and when to read it.** This README deliberately does not restate them — three hand-maintained indexes drifted apart once already, and by the time it was noticed the README was missing nine files and the routing table was missing a 704-line document.
+
+`bin/check-index` enforces it: every tracked instruction file must be reachable from some other tracked file. It runs from the pre-commit hook installed by `bin/install-secret-hooks`.
+
+## Layout
 
 ```
-~/.config/github-copilot/intellij/
-├── global-agents.instructions.md          # Loaded for every conversation (agent behavior, terminal rules, lessons learned)
-├── copilot-oom-prevention.md              # Global: preventing Copilot language server OOM on large projects
-├── mcp.json                               # MCP server configuration (Atlassian, GitHub, Context7, etc.)
-├── README.md                              # This file
-├── personal/                              # Git submodule (private, non-ScyllaDB instructions)
-├── scratch/
-│   └── _internal-README.md                # Template for the agent's internal working area
-└── scylla/
-    ├── scylladb-instructions.md           # ScyllaDB C++ repo: build, test, code style, commit organization, PR format
-    ├── sct-instructions.md                # SCT (Scylla Cluster Tests): log analysis, metrics, architecture
-    ├── copilot-oom-prevention.md          # ScyllaDB-specific OOM provisioning (points to global doc)
-    ├── scylladb_all_metrics_mapping.md    # Complete mapping of ScyllaDB Prometheus metrics to C++ source
-    ├── arm-instance-setup.md              # Personal ARM EC2 instance setup, AWS commands, Ubuntu patches
-    ├── x86-instance-setup.md              # Personal x86 EC2 instance (perf tests, S3 stress) setup
-    ├── gitleaks.toml                      # Custom gitleaks config for detecting credentials
-    ├── templates/
-    │   └── copilotignore                  # Canonical .copilotignore for ScyllaDB clones
-    └── bin/
-        ├── refresh-aws-creds              # Script: refresh AWS credentials via TOTP
-        ├── install-secret-hooks           # Script: install gitleaks pre-commit/pre-push hooks
-        └── setup-scylla-workspace         # Script: provision a ScyllaDB clone (.copilotignore, CLion excludeRoots)
+global-agents.instructions.md   # Core — always loaded
+playbooks/                      # Load-on-demand procedures
+scylla/                         # ScyllaDB ecosystem: repo, SCT, clusters, instances, references
+  bin/                          # Installable scripts (AWS creds, secret hooks, workspace setup, WARP)
+  templates/                    # Canonical .copilotignore for ScyllaDB clones
+clion-code-nav/                 # CLion CodeNav MCP project
+copilot-history-export/         # Nitrite DB -> Markdown transcript exporter
+scratch/                        # Canonical template seeded into the CLion scratches _internal area
+bin/                            # Repo-maintenance scripts
+personal/                       # Private submodule (non-ScyllaDB instructions)
+mcp.json                        # MCP server configuration
 ```
 
-> Untracked local-only files may also be present (e.g. `sampling.json`, `secrets/`); these are excluded by `.gitignore`.
+Untracked local-only files may also be present (e.g. `sampling.json`, `secrets/`); `.gitignore` excludes them.
 
-## How It Works
+## What does not belong here
 
-- **`global-agents.instructions.md`** is loaded at session start for all JetBrains IDE sessions. It contains:
-  - Project-specific instruction routing table
-  - Terminal command rules (leading space, no interactive commands, output redirection, **no push without explicit permission**)
-  - Scratch file policy (save temp files under CLion scratches, not the repo)
-  - Copilot OOM prevention quick-reference
-  - PR interaction workflow (plan-review / finalize-review two-phase process)
-  - `$`-prefixed command system (`$cmd` lists all available commands)
-  - Self-updating Lessons Learned section (periodically graduated into standing sections)
+Per-task state — investigation notes for one PR, an implementation plan for one fix, measurements from one set of runs. Those expire when the work merges and are indistinguishable from standing rules once a routing row points at them. They live in the agent's private working area under the CLion scratches `_internal/` directory. See *This repo holds durable instructions, not task state* in the core file.
 
-- **`copilot-oom-prevention.md`** (global) covers the universal problem of Copilot crashing on large workspaces (>50k files). Applies to any project — ScyllaDB, ClickHouse, or any large C++ codebase. Documents:
-  - Defense layers: `.copilotignore`, CLion excludeRoots, NODE_OPTIONS heap, auto-provisioning
-  - Quick setup procedure for any new large project
-  - Universal and project-specific ignore patterns
+## Version control
 
-- **`scylla/scylladb-instructions.md`** is loaded when working in the `scylladb/scylladb` repository. Covers build system, test runner, code style, commit organization, PR cover letter format, CI failure analysis, and review comment handling.
-
-- **`scylla/sct-instructions.md`** is loaded when working in the `scylla-cluster-tests` repository. Covers SCT log analysis, archive structure, Prometheus TSDB analysis, and metric interpretation.
-
-- **`scylla/copilot-oom-prevention.md`** covers ScyllaDB-specific provisioning: the `.copilotignore` template, auto-provisioning via git hook, and `testlog/` maintenance.
-
-- **`scylla/templates/copilotignore`** is the canonical `.copilotignore` template for ScyllaDB clones. Installed by `setup-scylla-workspace` or the git post-checkout hook.
-
-- **`scylla/bin/setup-scylla-workspace`** provisions any ScyllaDB clone with `.copilotignore`, CLion excludeRoots, and git exclude entries. Run once per existing clone; new clones are auto-provisioned via the git template hook at `~/.config/git/templates/hooks/post-checkout`.
-
-- **`scylla/scylladb_all_metrics_mapping.md`** is a reference file consulted during Prometheus metric analysis.
-
-- **`scylla/arm-instance-setup.md`** covers the personal ARM EC2 instance (`i-05ccc6ae22cf5bc94`): start/stop commands, SSH access, Ubuntu-specific patches, LD_LIBRARY_PATH setup.
-
-- **`scylla/x86-instance-setup.md`** covers the personal x86 EC2 instance (i4i.4xlarge): perf tests, S3 stress, AWS credential forwarding.
-
-## Version Control
-
-This directory is a git repository tracked at `git@github.com:kreuzerkrieg/AI-agent-instructions.git`. After any edit to instruction files, the agent commits and pushes:
+Tracked at `git@github.com:kreuzerkrieg/AI-agent-instructions.git`. After any edit, the agent commits and pushes immediately — this is the one repo exempt from the global no-push rule:
 
 ```bash
 cd ~/.config/github-copilot/intellij
 git add -A && git commit -m "<description>" && git push
 ```
 
-The agent pulls at session start (`git pull --rebase`) to stay current with edits from other machines.
+The agent pulls at session start (`git pull --rebase`) to pick up edits from other machines.
 
-The `.gitignore` uses an inverted pattern (ignore everything, whitelist known files). When adding a new instruction file, add a corresponding `!filename` entry to `.gitignore`.
+`.gitignore` uses an inverted pattern (ignore everything, whitelist known files). When adding a new instruction file or subdirectory, add a matching `!name` (and `!name/**` for a directory) entry, then add a row to the appropriate routing table in the core file — `bin/check-index` fails the commit otherwise.
