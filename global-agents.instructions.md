@@ -86,8 +86,6 @@ Project-specific instructions are organized under subdirectories of this config 
 |------|-------------|-------------|
 | `scylla/scylladb-instructions.md` | Working in **scylladb/scylladb** repo (the main C++ database) | Build system, C++/Python code style, test philosophy, backtrace decoding |
 | `scylla/sct-instructions.md` | Working in **scylla-cluster-tests** repo (or any SCT task) | SCT-specific conventions, architecture, analysis workflows, metric mappings |
-| `scylla/s3-throttler-work.md` | **Any task touching the S3 send-rate throttler, PR 30775, SCYLLADB-3249, or SRE-1418 upload failures** | Handoff spec: what was measured across three 16-node fleet runs, the four code-level reasons the throttler does not currently work (with file:line), the fixes in priority order, and the no-budget-for-fleet-runs constraint |
-| `scylla/s3-throttler-retry-pacing-plan.md` | **Implementing the S3 throttler fix** — load alongside `s3-throttler-work.md` | Implementation plan for the two changes run 10 showed are required: pace retries inside `should_retry()` and stop throttling responses consuming the retry budget. Carries the design constraints (const method, no request class available, injection-after-construction), the mandatory time bound, risks, and a cheapest-first verification path |
 | `scylla/scylladb_all_metrics_mapping.md` | Reference for SCT metric analysis | Full mapping of ScyllaDB Prometheus metrics |
 | `scylla/production-cluster-investigation.md` | **Any investigation of a live customer/dbaas cluster** — perf issue, stall, error spike, disk concern, incident triage, on-call page, ticket referencing a cluster ID | Access prerequisites (WARP + StrongDM SSH), available data sources (Prometheus/Thanos, VictoriaLogs, Grafana, backtrace) with when-to-use, on-node commands to run once SSH'd in, on-call context (rotations, tiers, DataDog paging, Slack war rooms), default investigation workflow, Grafana-panel → PromQL mapping, common anti-patterns, reporting format |
 | `scylla/disk-usage-accounting.md` | Investigating disk-space discrepancies (`du` vs Grafana vs `nodetool`) — sub-reference of production-cluster-investigation.md | Explains which categories are/aren't reported by Scylla metrics, the LSA-vs-disk panel confusion, multi-mount and per-shard summing traps, and a reconciliation recipe |
@@ -109,6 +107,18 @@ Project-specific instructions are organized under subdirectories of this config 
 **Weekly status email — never send via a Google/Gmail MCP connector.** Generate an email-ready markdown file next to the week's report at `~/Development/weekly-reports/<YYYY>/<YYYY>-W<NN>-email.md`, built fresh from `<YYYY>-W<NN>.md`: greeting "Hi Łukasz,", mirror the `##`/`###` structure, preserve bold ticket keys and Jira/PR links, omit the `## Needs your input` section and the top "Draft…" note, close with "Sincerely," / "Ernest". The user renders it and copy-pastes into Gmail.
 
 **Always read the relevant file at the start of a session** using `read_file` — do not rely on memory from prior conversations. If a file does not exist yet, notify the user so it can be created.
+
+### This repo holds durable instructions, not task state
+
+Per-task handoff specs — investigation notes for one PR, an implementation plan for one fix, measurements from one set of runs — do **not** belong here. They expire when the work merges, and they are indistinguishable from standing rules once a routing-table row points at them. Keep them in the agent's private working area instead:
+
+```
+~/.config/JetBrains/CLion<version>/scratches/GitHubCopilot/_internal/<topic>/
+```
+
+Current in-flight task state living there: `_internal/s3-throttler/` (S3 send-rate throttler — PR 30775, SCYLLADB-3249, SRE-1418: fleet-run measurements, the code-level reasons the throttler does not yet work, the retry-pacing implementation plan, and the no-budget-for-more-fleet-runs constraint). **Note:** the scratches path is pinned to the CLion major version, so it does not follow a version upgrade and is not synced between machines. If a handoff spec needs to survive either, give it its own repo rather than adding it back here.
+
+A finding only belongs in this repo once it has outlived its task and become a rule that applies to future work — at which point it goes into a standing section, not a new file.
 
 ---
 
