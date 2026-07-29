@@ -519,6 +519,16 @@ The `instance` label varies between monitoring configurations:
 
 ---
 
+### Source Metrics From the TSDB — Never From nodetool
+
+Always retrieve time-series data from the Prometheus TSDB snapshot in `monitor-set-<id>/prometheus_data_*.tar.zst`. Never substitute `nodetool info`, `nodetool cfstats`, gossip state, or `system.log` lines — those are point-in-time or lifetime-cumulative and do not reflect a specific test phase. Measured divergence: `nodetool info` reported ~50% cache hit rate where Prometheus showed the correct 90.1% for the read phase.
+
+### Match the Time Window to the Workload Phase
+
+When computing counter deltas, the window must correspond exactly to the phase being measured. Using the full TSDB range or the whole test duration mixes in the write/prepare phase (cold cache, high misses) and idle periods, which skews every average. Extract the phase start/end from the stress log (`head -1` and the `grep "Results:"` line), convert to epoch ms, and filter samples to that window.
+
+---
+
 ## Decoding Backtraces from SCT Logs
 
 When a ScyllaDB node crashes (SEGV, abort, assertion failure) during an SCT run, the `system.log` for that node contains a raw backtrace with hex addresses. These must be symbolized to be useful.
@@ -718,6 +728,31 @@ rate(scylla_io_queue_total_read_bytes[1m])
 # Hint queue growth (indicates node down)
 scylla_hints_manager_size_of_hints_in_progress
 ```
+
+---
+
+### Label Dimensions — Check Before Aggregating
+
+Always inspect the label set with `sort -u` on a dump before writing an extraction script. Keying on the wrong dimensions silently merges distinct series and produces phantom deltas.
+
+- **`scylla_s3_total_*` carries a `class` label** (`main`, `memtable`, `compaction`, `sl:default`). Keying only by `(instance, shard)` merges them: a `class="main"` series sitting at 0 merged with `class="memtable"` at 20578 reports a false delta of 20,578 per shard when the real delta was 0. Key by `(class, instance, shard)`.
+- **Pick the right `class` for the question:** `sl:default` is user-facing query traffic, `main` is metadata/SSTable-open reads, `compaction` is compaction I/O. Reading `main` when you meant `sl:default` can underreport user GETs by 100x. The `class` label maps to Seastar scheduling groups.
+- **`scylla_column_family_*` has no `shard` label** — those are per-node per-table aggregates, so key by `instance` only. Most other metrics (s3, sstables, cache, reactor) do have `shard`.
+
+### Finding a Metric That Is Not in the Mapping File
+
+Many metrics are registered with a runtime `group_name` variable (see Appendix A3), so `grep 'add_group("...'` will not find them. Strip the `scylla_` prefix and the group, then search for the short metric name alone (e.g. `"written"`, `"dropped"`). Never infer a metric's meaning from its name — trace it to the `add_group` + `make_counter`/`make_gauge` registration site, then add it to `scylladb_all_metrics_mapping.md`.
+
+### Trust the Mapping File, but Sanity-Check the Declared Type
+
+A full audit found exactly one data-entry error in `scylladb_all_metrics_mapping.md` (`scylla_s3_downloads_blocked_on_memory` labelled gauge where the code uses `sm::make_counter`). The file is otherwise authoritative. Quick check: counters only rise; gauges rise and fall. If observed values contradict the declared type, fix the mapping and re-run the analysis.
+
+### Loaded SSTables Versus Actively-Read SSTables
+
+These two are easy to confuse and mean different things:
+
+- `scylla_sstables_currently_open_for_reading` — gauge of SSTable objects holding open file handles, i.e. the loaded set. Typically flat (~425). Irrelevant to active I/O pressure.
+- `scylla_database_sstables_read{class="sl:default"}` — gauge of live SSTable reader objects, i.e. how many SSTables user queries are concurrently reading. Fluctuates 0–457, and only during queries. This is the one to use for read pressure.
 
 ---
 
@@ -1409,6 +1444,13 @@ Given a latte script and test config, compute actual unique rows:
 
 ---
 
+### Interpreting Latte Output and Timeouts
+
+- **A missing SUMMARY does not mean zero operations.** When latte is killed by `--duration`, the SUMMARY section is never printed. Parse the per-second LOG data lines instead — columns are `Time[s] Cycles Errors Throughput Latency[ms]...` plus percentiles. The `Cycles` column is **cumulative**, so the last data line's value is the total ops completed.
+- **Maximum warmup wall time is `--request-timeout` x `--retry-number`.** A warmup that looks "stuck for 8 hours" is usually `--request-timeout=4800` (80 min) times `--retry-number=5`. Compute that product before reporting a hang, and report the mechanism rather than only the wall-clock number.
+
+---
+
 ## Lessons Learned — Self-Updating Section (SCT-specific)
 
 This section is **written and maintained by the agent itself**, following the same rules as the global Lessons Learned section in `global-agents.instructions.md`. Entries here are **SCT-specific** — general insights go in the global file instead.
@@ -1434,69 +1476,5 @@ Each entry: a short title, the date, and a concise explanation. Keep entries to 
 ### Periodic graduation (squash into standing sections)
 Like the global Lessons Learned, this is a **staging area**. Periodically fold stable, recurring entries into the relevant standing SCT section (e.g., a metric-tracing lesson → "ScyllaDB Prometheus Metrics", a TSDB lesson → "Prometheus TSDB Analysis") and remove the now-redundant entry here. Follow the global rule for cadence and method (see "Periodic graduation" in `global-agents.instructions.md`).
 
----
 
-### ScyllaDB metrics use dynamic group names (2026-04-28)
-Many ScyllaDB Prometheus metrics are registered with a runtime `group_name` variable (e.g., in `db/hints/manager.cc`, `service/tablet_allocator.cc`, `alternator/stats.cc`), making them invisible to naive `grep 'add_group("...'` extraction. The actual Prometheus name depends on the group name passed at object construction time (e.g., `hints_manager`, `load_balancer`, `alternator_GetItem`).
-**Correct approach:** When a metric is not found by searching the literal Prometheus name in C++, strip the `scylla_` prefix and group, then search for the short metric name (e.g., `"written"`, `"dropped"`). Check the known dynamic-group files listed in Appendix A3.
-
-### Always trace unmapped metrics back to C++ source (2026-04-28)
-When encountering a Prometheus metric during SCT analysis that is not in the mapping file, do not guess its meaning from the name alone. Trace it back to the C++ registration site (`add_group` + `make_counter`/`make_gauge`) to get the actual description. Then add it to the mapping file.
-**Correct approach:** Follow the "Unmapped Metric Procedure" above and update `scylladb_all_metrics_mapping.md`.
-
-### promtool tsdb dump requires --sandbox-dir-root with snapshot directories (2026-04-29)
-When using `promtool tsdb dump` on a Prometheus snapshot directory (extracted from `prometheus_data_*.tar.zst`), the command fails silently with "setting up sandbox dir: stat data/: no such file or directory" unless you pass `--sandbox-dir-root="<tsdb_path>"`. Without this flag, promtool looks for a `data/` directory relative to CWD and produces no output.
-**Correct approach:** Always use `promtool tsdb dump --sandbox-dir-root="$TSDB" --match='{...}' "$TSDB"` when querying snapshot directories.
-
-### Cache hit rate must use correct read-phase time window (2026-04-29)
-When calculating cache hit rates from Prometheus counter deltas, the time window MUST correspond exactly to the read stress phase (check stress log timestamps). Using the full TSDB range or test duration gives incorrect averages because it includes the write/prepare phase where the cache is being populated (high misses) or idle periods.
-**Correct approach:** Extract read start/end timestamps from the stress log (`head -1` and `grep "Results:"` lines), convert to epoch ms, then filter Prometheus samples to that window only.
-
-### Always use remote symbolization service for backtraces — never coredumpctl info + c++filt (2026-05-04)
-The agent used `coredumpctl info` output from `CoreDumpEvent` entries in the SCT log and decoded mangled symbols with `c++filt`. This produces incomplete results: no source file/line, no inlined frames, wrong function attribution (e.g., showed `utils::small_vector::expand()` when the actual crash was in `utils::chunked_vector::new_chunk()`).
-**Correct approach:** (1) Find the Build ID via `grep 'build-id' sct-<id>.log`, (2) extract raw hex addresses from `Backtrace:` blocks in the SCT log, (3) send to `staging.backtrace.scylladb.com/api/backtrace` with the build ID. This returns fully symbolized output with source file:line, inlined frames, and demangled names — the same quality as `system.log` reactor stall backtraces.
-
-### Always use Prometheus TSDB for metrics — never rely on nodetool or other approximations (2026-04-29)
-When reporting metrics like cache hit rate, throughput counters, or any time-series data, ALWAYS retrieve the data from the Prometheus TSDB snapshot (in `monitor-set-<id>/prometheus_data_*.tar.zst`). Do NOT use `nodetool info`, `nodetool cfstats`, gossip state, or system.log entries as substitutes — these provide point-in-time or cumulative snapshots that do not accurately reflect behavior during a specific test phase. In this analysis, `nodetool info` reported ~50% cache hit rate for local_4xlarge while Prometheus showed the correct value of 90.1% during the read phase.
-**Correct approach:** Extract the Prometheus TSDB, use `promtool tsdb dump --sandbox-dir-root="$TSDB" --match='{__name__="<metric>"}' "$TSDB"`, filter to the exact time window of interest, and compute deltas per (instance, shard).
-
-### S3 metrics have a `class` label — always filter by it (2026-05-04, updated 2026-05-19)
-The `scylla_s3_total_*` metrics (GET/PUT/HEAD/DELETE requests, bytes, latency, retries) have a `class` label with values like `main`, `memtable`, `sl:default`. When computing counter deltas, if you key only by `(instance, shard)` and ignore `class`, multiple distinct series get merged into one list. This produces phantom deltas: e.g., the `class="main"` series stays at 0 while `class="memtable"` has actual values — the merged list shows `first=0, last=20578` = false delta of 20,578 per shard, when the real delta during that window was 0. Additionally, `class="main"` covers metadata/SSTable-open reads, while `class="sl:default"` is user-facing query traffic — reading from `class="main"` can underreport user GET counts by 100×.
-**Correct approach:** When analyzing user-facing read/write performance, filter by `class="sl:default"`. For compaction I/O, use `class="compaction"`. Always key series by `(class, instance, shard)`. Check all label dimensions with `sort -u` on the dump before aggregating. The `class` label maps to Seastar scheduling groups.
-
-### Trust the metrics mapping file — but sanity-check values that don't match the declared type (2026-05-19)
-The metrics mapping file (`scylladb_all_metrics_mapping.md`) had one data-entry error: `scylla_s3_downloads_blocked_on_memory` was labeled "gauge" but the code uses `sm::make_counter`. A full audit confirmed this was the **only** discrepancy — the file is otherwise correct and authoritative.
-**Correct approach:** Trust the mapping file. If a metric's observed values don't match the declared type (e.g., "gauge" but values only ever go up), fix the mapping and re-run analysis. Quick sanity check: counters only go up; gauges go up AND down.
-
-### Distinguish "SSTable objects loaded" from "SSTables actively being read" (2026-05-19)
-The agent confused `scylla_sstables_currently_open_for_reading` (gauge: total SSTable objects with open file handles = the loaded set, typically ~425 constantly) with `scylla_database_sstables_read` (gauge: SSTable reader objects currently alive = actively reading data, fluctuates 0–457 only during queries).
-**Correct approach:** Use `scylla_database_sstables_read{class="sl:default"}` for "how many SSTables are being concurrently read by user queries right now". Use `scylla_sstables_currently_open_for_reading` only to count the loaded SSTable objects on a shard — it is irrelevant to active I/O pressure.
-
-### Always verify dataset size — never trust test names or Jira descriptions (2026-05-14)
-The agent reported "20M rows × 10 × 512-byte blobs" based on the test name "100gb" and the table schema showing 10 blob columns. The actual on-disk size was **0.44 GB** (not 100 GB) — the latte script generated empty/tiny blobs. The test name was aspirational/leftover, and the schema alone doesn't reveal column value sizes.
-**Correct approach:** (1) Check `scylla_column_family_live_disk_space` from Prometheus for the actual table. (2) Cross-reference native and S3 runs — if both show the same size, the metric is correct. (3) Compare `total_disk_space_before_compression` vs `live_disk_space` to check compression ratio. (4) Calculate per-row size = total / (unique_rows × RF) and compare against schema expectations. (5) If the latte script isn't available, derive blob sizes from on-disk evidence rather than assuming from schema.
-
-### column_family disk metrics have NO shard label — don't key by shard (2026-05-14)
-The `scylla_column_family_live_disk_space`, `total_disk_space`, `live_sstable`, and `tablet_count` metrics are per-instance per-table aggregates — they do NOT have a `shard` label. When extracting these, key by `instance` only. If you key by `(instance, shard)` you'll either get no matches or misparse the data.
-**Correct approach:** For column_family metrics, use `awk` keyed on `instance` only. For most other ScyllaDB metrics (s3, sstables, cache, reactor), these DO have shard labels — check sample lines before writing extraction scripts.
-
-### Latte partition distribution × ck computation creates GCD-based row collisions (2026-05-14)
-With `PARTITION_SIZES="100:1"`, latte distributes rows round-robin across N partitions (stride=1). The `ck = idx % ROWS_PER_PARTITION` formula means partition `p` gets ck values `{(p + k*N) % ROWS_PER_PARTITION : k=0,1,...}`. The number of **unique** ck values per partition = `ROWS_PER_PARTITION / gcd(N, ROWS_PER_PARTITION)`. If `N` divides `ROWS_PER_PARTITION`, you get only `ROWS_PER_PARTITION/N` unique rows per partition — the rest are overwrites.
-**Correct approach:** When analyzing latte workload data size: (1) compute `gcd(n_partitions, rows_per_partition)` to determine the overwrite multiplier, (2) unique_rows = `n_partitions × (rows_per_partition / gcd(n_partitions, rows_per_partition))`, but capped at actual cycle count. (3) Only if `end_cycle - start_cycle >= ROW_COUNT` are all rows populated. For this test: `gcd(1000, 30000)=1000` → 30 unique ck/partition × 1000 partitions = 30,000 total rows.
-
-### When Jenkins job tag contains a username, check that user's fork first (2026-05-14)
-The agent searched `scylladb/scylla-cluster-tests` upstream for a latte workload script, then searched GitHub code broadly — but the file only existed in `jsmolar/scylla-cluster-tests` on a feature branch. The Jenkins job tag (`jsmolar-longevity-v2-s3-keyspace...`) clearly contained the username.
-**Correct approach:** When a Jenkins job name or branch identifier contains a GitHub username (e.g., `jsmolar-longevity-...`), immediately check that user's fork of the relevant repo at GitHub (e.g., `https://github.com/jsmolar/scylla-cluster-tests`). Feature branches with test configs are typically on personal forks before they land upstream.
-
-### The latte benchmark tool lives at github.com/scylladb/latte (2026-05-14)
-The agent couldn't find the latte tool repository when searching for "latte" under `org:scylladb` or broadly. GitHub search didn't surface it.
-**Correct approach:** The latte CQL/Alternator benchmark tool is at `https://github.com/scylladb/latte`. Key source files: `src/scripting/functions_common.rs` (built-in functions like `blob()`, `text()`, `hash()`, `uuid()`), `src/scripting/row_distribution.rs` (partition row distribution logic), `src/scripting/mod.rs` (script engine setup). Latte uses the Rune scripting language (`.rn` files).
-
-### Latte timeout ≠ zero ops — always parse LOG data lines (2026-05-28)
-When latte is killed by `--duration` timeout, the SUMMARY section is absent from the output. The agent assumed 0 completed operations because no summary was printed.
-**Correct approach:** Latte emits per-second LOG data lines during execution with columns: `Time[s] Cycles Errors Throughput Latency[ms]...` (plus percentile columns). The "Cycles" column is **cumulative** — the last data line's Cycles value = total ops completed. Always parse these lines to determine actual work done when SUMMARY is missing.
-
-### Latte request-timeout × retry-number determines total warmup wall time (2026-05-28)
-The agent reported that `count_read` warmup "stuck for 8 hours" without explaining why. The actual mechanism: `--request-timeout=4800` (80 min) × `--retry-number=5` retries = up to ~8h wall clock if every warmup attempt times out.
-**Correct approach:** When analyzing latte failures during warmup, compute `request_timeout × retry_number` to determine the maximum possible warmup duration. Report the mechanism (retries × timeout) rather than just the wall-clock time.
-
+<!-- Graduated: all prior entries folded into standing SCT sections on 2026-07-29. The section starts fresh below. -->
