@@ -135,6 +135,11 @@ backed off.
 
 ## 4. What to do, in order of value
 
+> **Items 1 and 2 below now have a dedicated implementation plan:
+> `scylla/s3-throttler-retry-pacing-plan.md`** — design constraints, the mandatory time bound, risks
+> and a verification path. Read it before touching the retry path.
+
+
 1. **Pace retries AND stop counting throttles against the budget.** `should_retry()` already awaits
    (`sleep_before_retry`), so `co_await limiter->acquire()` belongs beside it — the strategy needs a
    reference to the limiter. Pair it with exempting throttling responses from `_max_retries` (retry
