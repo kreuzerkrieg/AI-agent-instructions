@@ -89,6 +89,28 @@ if (should_retry) { co_await sleep_before_retry(attempted_retries); }
 At attempt 10 the request fails regardless of whether the error was a throttle. **Pacing alone
 cannot give zero failures** — it raises per-attempt success probability without removing the ceiling.
 
+**This confuses people, so trace it.** In `client.cc` the throttled reply is marked retryable:
+
+```cpp
+auto should_retry = possible_error->is_retryable() || utils::http::retryable(is_throttling);
+```
+
+That flag means *eligible for retry*, not *retried until it succeeds* — and the strategy has two
+gates, with the count checked **before** the flag is read. One `upload_part` under sustained
+throttling:
+
+| consultation | `attempted_retries` | gate 1 (count) | sleep | outcome |
+|---|---|---|---|---|
+| after attempt 1 | 0 | pass | 0 ms (`== 0` returns ready) | retry |
+| 2-10 | 1..9 | pass | 50ms, 100, 200, 400, 800, 1.6s, 3.2s, 6.4s, 12.8s | retry |
+| **11** | **10** | **FAIL** | — | `Retries exhausted. Retry# 10` -> throws |
+
+11 requests, ~25.5 s elapsed, and the part gives up **while still flagged retryable**. Being marked
+retryable does not make S3 stop returning 503: observed throttling lasted *minutes*, so every one of
+the 11 attempts lands inside the throttling window. A 25-second budget against 5 minutes of pushback
+can only end one way — which is why adding the controller moved failures from 116 to 236 rather than
+to zero.
+
 ### 3.3 The controller is a no-op until it has already been throttled
 
 `aws_throttling_controller::acquire()` returns immediately while `!_enabled`
