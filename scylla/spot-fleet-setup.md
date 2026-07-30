@@ -754,3 +754,40 @@ backup. Everything above that is marked ⚠️ came from this run. Beyond those:
 - **The credential run-script pattern from `x86-instance-setup.md §5` works unchanged** here;
   `shlex.quote()` the three AWS values into a script and `scp` it. Worth keeping the
   `mkdir -p /mnt/data/corpus` and `ulimit` inside that script so a run can't forget them.
+
+## Launching: two filters the candidate enumeration must apply (2026-07-30)
+
+Enumerating AZs to spread a fleet is only safe with both of these, or `RunInstances` fails in ways
+that read as capacity shortages:
+
+1. **Filter subnets to the security group's VPC.** `aws ec2 describe-subnets` with no filter returns
+   public subnets from *every* VPC in the account. Picking "the subnet with the most free addresses"
+   per AZ then lands on a foreign VPC wherever that VPC happens to be emptier, and the request fails
+   with `InvalidParameter` -- *"security group and subnet belong to different networks"*. Resolve the
+   VPC first: `aws ec2 describe-security-groups --group-ids "$SG" --query 'SecurityGroups[0].VpcId'`.
+2. **Skip AZs that do not offer the instance type.** `us-east-1e` carries no i4i or i7i at all, so
+   requests there return `Unsupported` no matter how long you retry. Check with
+   `aws ec2 describe-instance-type-offerings --location-type availability-zone`.
+
+Also: use `--count "1:$need"` so EC2 grants a partial fill per AZ and the loop accumulates. A bare
+`--count $need` sets min=max and is refused unless one AZ can supply the whole fleet at once. Note
+`--min-count`/`--max-count` do not exist in AWS CLI v2.
+
+On 2026-07-30 all three problems were present at once and a full launch cycle reported
+`InsufficientInstanceCapacity` in all 12 type x AZ combinations while ample capacity existed. Fixed in
+`s3-fleet.sh`, whose error-reason regex now also recognises quota, `Unsupported` and
+`InvalidParameter*` so an unlisted error can no longer masquerade as "no capacity".
+
+## Instance size choice depends on what you are measuring
+
+The throughput-per-dollar sweet spot and the box that reproduces S3 throttling are **not the same**:
+
+| | 8xlarge (32 shards) | 16xlarge (64 shards) |
+|---|---|---|
+| requests per object | ~1.3 (upload ~2.1) | **~15** |
+| bound by | NIC (2,175 MB/s ~ 17.4 of 18.75 Gbps) | request rate |
+| S3 throttling | **essentially none** (1 in 3.05 M) | reproduces SRE-1418 |
+
+S3 throttles on request rate, not bytes, so a NIC-saturated 8xlarge fleet never reaches the threshold.
+Reproducing throttling needs `TYPES=i4i.16xlarge`; the script's default is 8xlarge. Doubling node count
+does not substitute, because the amplification is a per-node shard-count effect.

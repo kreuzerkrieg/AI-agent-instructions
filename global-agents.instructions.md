@@ -561,3 +561,62 @@ This section is a **staging area**, not a permanent home. Periodically review it
 - Graduating is itself an instruction-file edit — commit and push it (see "Version Control for Instruction Files").
 
 <!-- Graduated: all prior entries folded into standing sections on 2026-05-24 and again on 2026-07-29. The section starts fresh below. -->
+
+### `pgrep -f` / `pkill -f` match the agent's own shell (2026-07-30)
+I used `pkill -f "s3-fleet.sh launch"` and it killed my own shell; later `pgrep -f "s3-fleet"`
+reported an already-finished setup as still running, so I told the user I was waiting for work that
+had completed. The pattern text appears in the tool's own `bash -c` command line, so it always
+self-matches.
+**Correct approach:** never use `pgrep -f`/`pkill -f` from a tool shell. List with
+`ps -eo pid,etime,cmd | grep -E <pat> | grep -v grep`, then act on the PID. Kill orphaned children
+(e.g. `aws ec2 wait`) separately -- they outlive the parent.
+
+### `ssh` inside `while read` swallows the loop's input (2026-07-30)
+A 16-node health check reported `checked 1`, which I almost read as 15 nodes being unreachable. The
+bare `ssh` in the loop body consumed the host list on stdin.
+**Correct approach:** always `ssh -n` (or `< /dev/null`) inside a read loop, and print a count at the
+end of every fan-out, asserting it equals the expected node count. A loop that visited one host looks
+identical to a fleet that mostly failed.
+
+### The terminal tool SIGTERMs at 10 minutes regardless of the timeout requested (2026-07-30)
+A fleet launch was killed mid-flight at exactly 10:00 even though a 30-minute timeout was passed,
+risking half-created cloud resources.
+**Correct approach:** start anything that may exceed ~8 minutes detached --
+`setsid nohup ./cmd > "$SCRATCH/cmd.log" 2>&1 &` -- and poll the log in short calls. If a
+resource-provisioning command is killed, query the provider for what was actually created *before*
+retrying, or the retry doubles the resources.
+
+### Diff a benchmark's config against its baseline before spending money (2026-07-30)
+I launched a 16-node run to extend a series, using the launcher's default instance size (8xlarge,
+32 shards) while every earlier run in the series used 16xlarge (64 shards). Request amplification is a
+per-node shard-count effect, so the run generated 1 throttling response in 3 million requests and
+measured nothing. ~$27 for zero signal, and the data proving 8xlarge was wrong was already in memory.
+**Correct approach:** before launching, write the baseline's parameters and the new run's side by side
+-- instance type *and size*, shard/CPU count, node count, phases, duration, target -- and state the
+diff. If a load-bearing parameter differs, fix it or say up front what the run cannot answer.
+
+### Do not recommend a parameter change whose only support is an upstream default (2026-07-30)
+Having imported aws-sdk-cpp's retry-quota constants, which are calibrated against its
+`maxAttempts=3`, I recommended cutting our retry depth from 10 to 3 "because AWS ships 3". The user
+rejected it: if the borrowed budget conflicts with our policy, resize the budget. Our own measurements
+pointed the other way -- losses had fallen because the retry window got *longer*.
+**Correct approach:** check what policy an imported constant was tuned against, resize the constant to
+our policy, and document the derivation. Never let "upstream ships this" be the whole argument.
+
+### A wrapper's error classifier reports unrecognised errors as its fallback cause (2026-07-30)
+A launch script classified failures by grepping a fixed list of error names and printed "no capacity"
+for anything unmatched. Two configuration bugs -- subnets enumerated without a VPC filter, and an AZ
+that offers the instance type not at all -- both produced unlisted errors and so read as an AWS
+capacity drought. I chased phantom capacity for over half an hour.
+**Correct approach:** when a wrapper reports the same generic cause for every attempt, reproduce one
+attempt by hand and read the raw error. When writing such a classifier, make the fallback branch print
+the raw error text, never a guessed category.
+
+### AWS CLI v2: `--count min:max`, and `--output text` is tab-separated (2026-07-30)
+`--min-count`/`--max-count` do not exist in CLI v2; a bare `--count N` sets min=max, so EC2 refuses
+the request unless one AZ can supply the whole count at once. My wrong patch made every attempt fail
+on a CLI parse error, which the wrapper reported as "no capacity". Separately, a membership test
+written as `[[ " $list " == *" $item "* ]]` never matched because `--output text` emits TABs.
+**Correct approach:** use `--count "1:$n"` for partial fills, normalise text output with
+`tr '\t\n' '  '` before string matching, and run any patched CLI invocation standalone once to read
+its raw error before trusting a script's summary.
