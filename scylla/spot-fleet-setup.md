@@ -459,6 +459,58 @@ progress and were terminated in the same breath as the finished ones to stop the
 log head survived, and the interesting failure can no longer be investigated. Pull the full log
 first — it costs seconds — then terminate.
 
+### Spot: try every AZ before any on-demand, and discover AZs rather than listing them (2026-07-30)
+
+Two defects in the launcher, both of which quietly bought on-demand when spot was available. Spot is
+2-3x cheaper and the saving needs no approval, so getting this wrong is pure waste.
+
+**1. Loop order decides whether spot is really tried.** The launcher iterated candidates on the
+outside and markets on the inside:
+
+```bash
+for c in "${cands[@]}"; do        # type:az:subnet
+  for mkt in spot ondemand; do    # <-- inner
+```
+
+With `want` satisfied by on-demand in the *first* candidate's AZ, the loop breaks and spot is never
+requested anywhere else. Observed 2026-07-30: spot refused in us-east-1b, 16 instances taken on-demand
+there at ~$5.49, while spot in us-east-1f was quoting **$1.80** and was never asked. Put the **market
+on the outside**:
+
+```bash
+for mkt in spot ondemand; do
+  for c in "${cands[@]}"; do
+```
+
+**2. A hand-maintained candidate list silently omits AZs.** The list carried five AZs and one instance
+family; us-east-1e had never been added because no subnet there had been established. Discover instead:
+enumerate every subnet with `MapPublicIpOnLaunch==true` (the driver is ssh-based, so an instance
+without a public IP bills while being unreachable), take the one with the most free addresses per AZ,
+pair every AZ with every requested type, and **sort by live spot price** so a partial fill lands on the
+cheapest capacity available:
+
+```bash
+aws ec2 describe-subnets \
+  --query 'Subnets[?MapPublicIpOnLaunch==`true`].[AvailabilityZone,SubnetId,AvailableIpAddressCount]' \
+  --output text | sort -k1,1 -k3,3nr
+aws ec2 describe-spot-price-history --instance-types "$t" --availability-zone "$az" \
+  --product-descriptions Linux/UNIX --start-time "$(date -u -d '-2 hours' +%FT%TZ)" \
+  --query 'SpotPriceHistory[0].SpotPrice' --output text
+```
+
+An AZ with no recent quote should still be tried, last, at a sentinel price — a missing quote is not
+evidence of missing capacity. For i4i/i7i 16xlarge this turned 6 hand-written entries into 12
+discovered ones covering all six AZs.
+
+**Verify after the fact, not from the launch log.** The launcher tags each instance with the market it
+came from, and that tag is the only trustworthy answer to "did we get spot?" — launch output is often
+truncated:
+
+```bash
+aws ec2 describe-instances --filters "Name=tag:Name,Values=$FLEET" \
+  --query 'Reservations[].Instances[].[Tags[?Key==`market`]|[0].Value]' --output text | sort | uniq -c
+```
+
 ### Sizing sweeps: one at a time, and mind the AWS_PROFILE (2026-07-27)
 
 **Sweep sequentially, not in parallel.** Launching all six candidate sizes at once costs the full
