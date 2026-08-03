@@ -224,6 +224,36 @@ Both build systems use `stdafx.hh` as a precompiled header. In configure.py, thi
 - For Python tests, only `ninja build/dev/scylla` is needed (not full build)
 - Direct execution of C++ tests: `build/dev/test/boost/<test_name> -t <test_case> -- -c1 -m1G`
 
+### `test.py` needs Python >= 3.13 — run it through the repo venv
+
+`./test.py` uses `#!/usr/bin/env python3`, which on this machine resolves to the pyenv shim
+(3.12.5). `test/pylib/runner.py` passes `deprecated=True` to `parser.addoption()`, and argparse only
+accepts that keyword from **Python 3.13**, so a bare `./test.py` dies with:
+
+```
+TypeError: _StoreTrueAction.__init__() got an unexpected keyword argument 'deprecated'
+```
+
+No pip install fixes this — pytest forwards the kwarg verbatim (`Parser.attrs()` returns
+`self._attrs` unchanged), so even pytest 9.0.3 fails on 3.12. Use the venv in the main clone, which
+is built on `/usr/bin/python3.14` and has the full dependency set:
+
+```bash
+ ~/Development/scylladb/venv/bin/python ./test.py --mode dev test/boost/s3_test.cc
+```
+
+`/usr/bin/python3` is new enough but lacks `treelib`. If a fresh worktree has never run tests,
+`mkdir -p testlog/pytest_log` first — `runner.py` opens its log file without creating the directory
+and otherwise dies with an INTERNALERROR.
+
+### S3 tests: `minio` is a real binary, not the docker alias
+
+`test/pylib/minio_server.py` finds the server with `shutil.which('minio')`, which resolves to
+`/usr/local/bin/minio`. An interactive shell has a `minio` **alias** that runs a docker container, so
+`which minio` reports the alias and makes it look as though no binary is installed. `mc` is at
+`/usr/local/sbin/mc`. `test.py` starts and stops minio itself; do not start one by hand unless
+running the boost binary directly.
+
 ## Test Suites
 | Directory | Type | Description |
 |-----------|------|-------------|

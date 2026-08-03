@@ -266,6 +266,41 @@ Never write a log line, timestamp, ticket ID, cluster ID, error message, DC/rack
 
 For any function whose name implies a lifecycle transition (`after_test`, `stop`, `shutdown`, `teardown`, `cleanup`, `finalize`, `destroy`, `close`, `dispose`), never infer its side-effects from the name or from where it is called. Open it and read it. Names in test-harness code particularly love to lie: `after_test` often means "notify and validate", not "stop everything", and `close`/`cleanup` may release only a subset of resources. Getting this wrong once placed teardown callbacks against a still-running cluster and reproduced the exact race the change was meant to fix.
 
+### `git blame` credits the last mover, not the author
+
+Blame attributes a line to whoever last touched it, so any refactor that moves code steals
+authorship. Chasing "who added this hack" via blame named a refactoring commit whose diff was purely
+mechanical, and the real author was three months earlier. Confirm origin with a content search
+before naming anyone:
+
+```bash
+ git log -S '<distinctive token from the line>' --format='%h %ad %an | %s' --date=short -- <path>
+```
+
+Prefer a token unlikely to appear elsewhere (a magic constant, an unusual phrase from a comment).
+
+### Reachable in code is not the same as observed in production
+
+Tracing a path to `abort()` or to data loss proves it *can* happen, not that it *did*. Before calling
+something an availability risk or an incident, grep a real run for the symptom — the abort message,
+the coredump, the restart — and say which it is. An artificial reproduction (a patched build, an
+injected error) is evidence the mechanism is real, never evidence of production impact. Getting this
+backwards inflated a defect worth 69 log lines into a claimed node-crash risk, and the user caught it
+by asking "do you see from logs that the node was terminated?" — the answer was no.
+
+### A workaround's comment explains itself; that does not make it right
+
+When a comment justifies a hack ("minio treats a zero-sized upload as a no-op"), treat the *necessity*
+of the hack and the *stated cause* as two separate claims and test them separately. The hack can be
+load-bearing while its explanation is wrong — in that case the comment sends the next reader at the
+wrong layer. Necessity is settled by removing it and measuring; the stated cause is settled by
+probing the dependency directly (a signed `curl` against the endpoint, a unit test at the API
+boundary).
+
+Always take the baseline: run the suite unmodified, with the workaround removed, and with the
+candidate fix. Three numbers attribute the failure; two do not. Removing 7 lines gave 37 failed / 94
+passed against a 131-passed baseline, which is what made the argument reviewable.
+
 ### Verify that file edits actually landed
 
 Edit tools can report success, and even echo the new content back, while writing nothing. Three separate incidents: a dropped import line, a dropped multi-line structural edit, and `insert_edit_into_file` with `// ...existing code...` anchors silently deleting ~101 unseen lines from this very file.
