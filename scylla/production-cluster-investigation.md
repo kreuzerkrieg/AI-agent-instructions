@@ -129,11 +129,16 @@ fabricate it.
 | Source | How to reach it | Good for | NOT for |
 |---|---|---|---|
 | **Prometheus / Thanos** | `prometheus-mcp` server (Thanos backend, multi-cluster). Scope with `{cluster="#NNNN"}` | Any metric — CPU, disk, memory, per-shard, per-keyspace, per-table, streaming, repair, compaction, cache, IO queue, CQL rates, errors | Log messages, config values, schema, per-request tracing |
-| **VictoriaLogs** | `victorialogs` MCP server (LogsQL). Scope with `cluster:"#NNNN"` and time range | **Scylla-side** logs from cluster nodes — `system.log` / journal from `scylla-server`, `scylla-manager-agent`, `scylla-node-exporter`, `scylla-manager`. Error stacks, streaming/repair messages, config dumps at startup, DC/rack topology from log context. **Also holds** control-plane / cloud-orchestration logs. | The customer's own application-side logs (their microservices that query Scylla — those live in the customer's env, we never see them). Anything metric-shaped — use Prometheus. Broad `_time` queries with no filter are expensive |
+| **VictoriaLogs** | `victorialogs` MCP server (LogsQL). Scope with `cluster:"NNNN"` (**no `#`** — unlike Prometheus) and time range | **Scylla-side** logs from cluster nodes — `system.log` / journal from `scylla-server`, `scylla-manager-agent`, `scylla-node-exporter`, `scylla-manager`. Error stacks, streaming/repair messages, config dumps at startup, DC/rack topology from log context. **Also holds** control-plane / cloud-orchestration logs. | The customer's own application-side logs (their microservices that query Scylla — those live in the customer's env, we never see them). Anything metric-shaped — use Prometheus. Broad `_time` queries with no filter are expensive |
 | **Grafana dashboards** | Browser URL: `https://graphs.backoffice.prd.dbaas.scyop.net/cluster/<ID>/monitor/d/<dashboard>/...` | Visual confirmation, sharing a link with the user | Direct programmatic reads — we can't scrape panels. **Use the underlying PromQL via `prometheus-mcp` instead**, then optionally give the user the panel URL |
 | **Backtrace symbolication** | `scylla-backtrace` MCP + `https://backtrace.scylladb.com/api/backtrace` | Turning raw addresses in crash logs into function names + source lines | Anything that isn't a backtrace |
 | **ScyllaDB source** (OSS + enterprise) | `scylla-backtrace` MCP + `scylla_build_tools` (`lookup_build_id` / `search_builds`) to resolve build → commit; GitHub MCP `get_file_contents(ref=<tag>)` for `scylladb/scylladb` (OSS) or `scylladb/scylla-enterprise` (private); local clone + `clion-codenav` **only when its checked-out ref matches the customer's version** | Confirming what a metric name means, what an error string is thrown from, what a config flag actually gates — **at the specific version the cluster runs** (see §6 Step 6) | Runtime state of a live cluster. Also: default-branch/master source is misleading when the cluster runs an older enterprise release |
 | **GitHub / Jira / Confluence** | GitHub MCP, Atlassian MCP | Linked issues, known-bug lookups, related PRs, past postmortems | Live cluster state |
+
+**Scylla Manager logs:** the manager node tags its lines with the *managed*
+cluster's id, so `cluster:"NNNN" "Scylla Manager Server"` finds nothing.
+Filter by `hostname:"ip-<mgmt-node-ip>"` instead to reach the SM version
+banner and scheduler entries.
 
 **Rule of thumb:** if the question is *"what is happening right now / did
 happen at time T"*, the answer lives in Prometheus and VictoriaLogs, and
@@ -475,8 +480,30 @@ Operations) does not show up there** — cross-check with
 
 ### F. "Log grep with no time bound"
 VictoriaLogs across all time × all clusters is slow. Always include
-`cluster:"#NNNN"` and `_time:[start, end]` (or the tool's native
+`cluster:"NNNN"` and `_time:[start, end]` (or the tool's native
 range parameters).
+
+### H. "Empty result = outside retention"
+An empty VictoriaLogs `hits` array can equally mean a malformed filter —
+LogsQL returns no error for one. Before concluding a window has no data,
+confirm the field shape with `* | limit 2` and read `_stream`. The `#`
+prefix on cluster IDs is the classic offender (see anti-pattern F).
+
+Retention differs sharply between the two stores, so "no data" also
+depends on *which* store you asked:
+
+| Store | Horizon (measured 2026-08-03 on `#49607`) |
+|---|---|
+| Thanos / Prometheus | ~46–48 days. Data at 2026-06-18, none at 2026-06-16 |
+| VictoriaLogs | 68+ days (reached 2026-05-22) |
+
+Downsampled blocks do **not** extend the metric horizon — forcing a 1h
+step or `max_over_time(...[1h])` over an older window still returns zero
+series. So for any incident older than ~6 weeks, metric-shaped questions
+(NIC saturation, CPU, disk rates) can only be answered by a fresh
+reproduction run; version and config questions are still answerable from
+the startup banners in VictoriaLogs. Say this explicitly rather than
+reporting a silent "no data".
 
 ### G. "Grep master, cite line numbers"
 The customer runs a specific released version (enterprise-2025.1.9,
