@@ -301,6 +301,14 @@ Always take the baseline: run the suite unmodified, with the workaround removed,
 candidate fix. Three numbers attribute the failure; two do not. Removing 7 lines gave 37 failed / 94
 passed against a 131-passed baseline, which is what made the argument reviewable.
 
+### A wrapper's diagnosis is not the error
+
+A script that classifies failures by grepping a fixed list of error names reports its fallback category for everything it does not recognise. A launch script printed "no capacity" for two configuration bugs — subnets enumerated without a VPC filter, and an AZ that does not offer the instance type at all — and half an hour went into chasing a phantom AWS capacity drought.
+
+- When a wrapper reports the same generic cause for every attempt, that uniformity is the tell. Reproduce one attempt by hand and read the raw error before believing the summary.
+- Run any newly patched CLI invocation standalone once and read its output. A CLI *parse* error looks identical to a service error once a wrapper has classified it.
+- When writing such a classifier, make the fallback branch print the raw error text, never a guessed category.
+
 ### Verify that file edits actually landed
 
 Edit tools can report success, and even echo the new content back, while writing nothing. Three separate incidents: a dropped import line, a dropped multi-line structural edit, and `insert_edit_into_file` with `// ...existing code...` anchors silently deleting ~101 unseen lines from this very file.
@@ -390,6 +398,18 @@ For "how many / what kind of operations are we doing" questions, instrument the 
 - Before instrumenting any interface or factory-dispatched path, trace the dispatch to the concrete class that path actually creates. Name similarity is not proof — read the wiring.
 - Caveat to state in the results: a logical-call chokepoint counts logical calls, not lower-level retries. Call this out explicitly when retries live below the instrumented layer.
 
+### Diff a run against its baseline before paying for it
+
+A measurement that extends an existing series only answers anything if every load-bearing parameter matches the series. A 16-node fleet run launched at the launcher's default instance size (8xlarge, 32 shards) while the whole earlier series used 16xlarge (64 shards) produced 1 throttling response in 3 million requests and measured nothing — request amplification is a per-node shard-count effect, and the data proving 8xlarge was wrong was already in hand.
+
+Before launching, write the baseline's parameters and the new run's side by side — instance type *and size*, shard/CPU count, node count, phases, duration, target — and state the diff. If a load-bearing parameter differs, fix it or say up front what the run cannot answer. Defaults in a launcher are not the series' parameters.
+
+### An upstream default is not an argument for our parameter
+
+Constants imported from another project are calibrated against *that* project's policy. Having imported aws-sdk-cpp's retry-quota constants, which are tuned for its `maxAttempts=3`, recommending our retry depth drop from 10 to 3 "because AWS ships 3" inverted the argument — and our own measurements pointed the other way, since losses had fallen as the retry window got *longer*.
+
+Check what policy an imported constant was tuned against, resize the constant to our policy, and document the derivation. If the borrowed budget conflicts with our policy, resize the budget, not the policy. Never let "upstream ships this" be the whole argument.
+
 ---
 
 ## Terminal Command Rules
@@ -415,6 +435,12 @@ For "how many / what kind of operations are we doing" questions, instrument the 
 - To amend the most recent commit message: write the new message to a file, then `git commit --amend -F <msg-file>`. Never use `git commit --amend` without `-m` or `-F` — that opens an editor.
 - **Commit message temp files:** always use `printf '...\n\n...\n' > /tmp/msg.txt` rather than bash heredocs. Heredocs silently drop blank lines, causing the subject and body to merge onto one line. Alternatively, use the `create_file` tool.
 - **Before any destructive command** (`git reset --hard`, `git checkout -- .`, force-push): **prove safety first** by running `git diff <local> <remote>` to confirm no unique local content would be lost. Never proceed on an assumption of safety — verify with evidence, then execute.
+
+### Processes, fan-out loops, and long-running commands
+
+- **Never use `pgrep -f` / `pkill -f` from a tool shell.** The pattern text appears in the tool's own `bash -c` command line, so it always self-matches: `pkill -f "s3-fleet.sh launch"` killed the agent's own shell, and `pgrep -f "s3-fleet"` reported a finished setup as still running. List with `ps -eo pid,etime,cmd | grep -E <pat> | grep -v grep`, then act on the PID. Kill orphaned children (e.g. `aws ec2 wait`) separately — they outlive the parent.
+- **`ssh` inside a `while read` loop eats the loop's input.** Always `ssh -n` (or `< /dev/null`) in a read loop, and print a count at the end of every fan-out, asserting it equals the expected host count. A 16-node check that silently visited one host reported `checked 1`, which reads exactly like 15 unreachable nodes.
+- **The terminal tool SIGTERMs at ~10 minutes regardless of the timeout requested.** Start anything that may exceed ~8 minutes detached — `setsid nohup ./cmd > "$SCRATCH/cmd.log" 2>&1 &`, or the harness's background mode where it has one — and poll the log in short calls. If a resource-provisioning command is killed, query the provider for what was actually created *before* retrying, or the retry doubles the resources.
 
 > ❌ **STRICTLY PROHIBITED: `git push` / `git push --force` to any CODE REPOSITORY remote without explicit user instruction.** Local commits, amends, and rebases are always fine — but publishing code to a remote is the user's decision. Never push spontaneously after refining commits, addressing review comments, or rebasing. **Only exception:** the instructions repo (`~/.config/github-copilot/intellij/`) is always pushed immediately after edits. *This is the **canonical no-push rule** referenced throughout the PR workflow sections below.*
 
@@ -595,63 +621,4 @@ This section is a **staging area**, not a permanent home. Periodically review it
 - **Cadence:** do a graduation pass whenever this section grows past ~5–7 entries, or when explicitly asked. Leave a dated HTML comment noting when the last graduation happened.
 - Graduating is itself an instruction-file edit — commit and push it (see "Version Control for Instruction Files").
 
-<!-- Graduated: all prior entries folded into standing sections on 2026-05-24 and again on 2026-07-29. The section starts fresh below. -->
-
-### `pgrep -f` / `pkill -f` match the agent's own shell (2026-07-30)
-I used `pkill -f "s3-fleet.sh launch"` and it killed my own shell; later `pgrep -f "s3-fleet"`
-reported an already-finished setup as still running, so I told the user I was waiting for work that
-had completed. The pattern text appears in the tool's own `bash -c` command line, so it always
-self-matches.
-**Correct approach:** never use `pgrep -f`/`pkill -f` from a tool shell. List with
-`ps -eo pid,etime,cmd | grep -E <pat> | grep -v grep`, then act on the PID. Kill orphaned children
-(e.g. `aws ec2 wait`) separately -- they outlive the parent.
-
-### `ssh` inside `while read` swallows the loop's input (2026-07-30)
-A 16-node health check reported `checked 1`, which I almost read as 15 nodes being unreachable. The
-bare `ssh` in the loop body consumed the host list on stdin.
-**Correct approach:** always `ssh -n` (or `< /dev/null`) inside a read loop, and print a count at the
-end of every fan-out, asserting it equals the expected node count. A loop that visited one host looks
-identical to a fleet that mostly failed.
-
-### The terminal tool SIGTERMs at 10 minutes regardless of the timeout requested (2026-07-30)
-A fleet launch was killed mid-flight at exactly 10:00 even though a 30-minute timeout was passed,
-risking half-created cloud resources.
-**Correct approach:** start anything that may exceed ~8 minutes detached --
-`setsid nohup ./cmd > "$SCRATCH/cmd.log" 2>&1 &` -- and poll the log in short calls. If a
-resource-provisioning command is killed, query the provider for what was actually created *before*
-retrying, or the retry doubles the resources.
-
-### Diff a benchmark's config against its baseline before spending money (2026-07-30)
-I launched a 16-node run to extend a series, using the launcher's default instance size (8xlarge,
-32 shards) while every earlier run in the series used 16xlarge (64 shards). Request amplification is a
-per-node shard-count effect, so the run generated 1 throttling response in 3 million requests and
-measured nothing. ~$27 for zero signal, and the data proving 8xlarge was wrong was already in memory.
-**Correct approach:** before launching, write the baseline's parameters and the new run's side by side
--- instance type *and size*, shard/CPU count, node count, phases, duration, target -- and state the
-diff. If a load-bearing parameter differs, fix it or say up front what the run cannot answer.
-
-### Do not recommend a parameter change whose only support is an upstream default (2026-07-30)
-Having imported aws-sdk-cpp's retry-quota constants, which are calibrated against its
-`maxAttempts=3`, I recommended cutting our retry depth from 10 to 3 "because AWS ships 3". The user
-rejected it: if the borrowed budget conflicts with our policy, resize the budget. Our own measurements
-pointed the other way -- losses had fallen because the retry window got *longer*.
-**Correct approach:** check what policy an imported constant was tuned against, resize the constant to
-our policy, and document the derivation. Never let "upstream ships this" be the whole argument.
-
-### A wrapper's error classifier reports unrecognised errors as its fallback cause (2026-07-30)
-A launch script classified failures by grepping a fixed list of error names and printed "no capacity"
-for anything unmatched. Two configuration bugs -- subnets enumerated without a VPC filter, and an AZ
-that offers the instance type not at all -- both produced unlisted errors and so read as an AWS
-capacity drought. I chased phantom capacity for over half an hour.
-**Correct approach:** when a wrapper reports the same generic cause for every attempt, reproduce one
-attempt by hand and read the raw error. When writing such a classifier, make the fallback branch print
-the raw error text, never a guessed category.
-
-### AWS CLI v2: `--count min:max`, and `--output text` is tab-separated (2026-07-30)
-`--min-count`/`--max-count` do not exist in CLI v2; a bare `--count N` sets min=max, so EC2 refuses
-the request unless one AZ can supply the whole count at once. My wrong patch made every attempt fail
-on a CLI parse error, which the wrapper reported as "no capacity". Separately, a membership test
-written as `[[ " $list " == *" $item "* ]]` never matched because `--output text` emits TABs.
-**Correct approach:** use `--count "1:$n"` for partial fills, normalise text output with
-`tr '\t\n' '  '` before string matching, and run any patched CLI invocation standalone once to read
-its raw error before trusting a script's summary.
+<!-- Graduated: all prior entries folded into standing sections on 2026-05-24, 2026-07-29, and again on 2026-08-03. The section starts fresh below. -->

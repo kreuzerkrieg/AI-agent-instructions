@@ -773,6 +773,10 @@ Also: use `--count "1:$need"` so EC2 grants a partial fill per AZ and the loop a
 `--count $need` sets min=max and is refused unless one AZ can supply the whole fleet at once. Note
 `--min-count`/`--max-count` do not exist in AWS CLI v2.
 
+And `--output text` separates fields with **TABs**, not spaces. A membership test written as
+`[[ " $list " == *" $item "* ]]` therefore never matches. Normalise first:
+`list=$(aws ... --output text | tr '\t\n' '  ')`.
+
 On 2026-07-30 all three problems were present at once and a full launch cycle reported
 `InsufficientInstanceCapacity` in all 12 type x AZ combinations while ample capacity existed. Fixed in
 `s3-fleet.sh`, whose error-reason regex now also recognises quota, `Unsupported` and
