@@ -244,6 +244,25 @@ Applies to PR bodies, commit message bodies, review replies, and status reports:
 - Prefer the short word: use/utilize, start/initiate, make sure/ensure, about/regarding.
 - One name for one thing — do not alternate between two names for the same component.
 
+### Dates and Times — Local Timezone, Unambiguous Format
+
+Every date and time shown to the user is in the machine's **local timezone**.
+
+- Format `YYYY-MM-DD HH:MM` (24-hour): `2026-08-04 16:33`. Add `:SS` only when seconds carry
+  meaning. Add the offset (`+03:00`) when the value was converted from another zone.
+- **Convert before displaying.** Never paste a UTC timestamp from an API, a log line or a cloud
+  response as though it were local. Write `expires 2026-08-04 22:39 (+03:00)`, not
+  `2026-08-04T19:39:14Z`.
+- Durations read as `5h59m` or `2h51m` — never raw seconds, never `5:59:57.855192`.
+- A relative date always carries the absolute one: "Sunday (2026-08-02)". In memories and
+  documents use the absolute date alone.
+- When a timestamp drives a decision — credential expiry, run start and end, log correlation —
+  give both the value and the conclusion: `expires 22:39 local, 5h59m left`.
+
+**Why:** a UTC value presented as local silently moves an event by the offset. Fleet logs stamped
+in UTC were read against a local wall clock, which made a still-valid AWS session look expired and
+sent an S3 measurement session chasing a credential problem that did not exist.
+
 For longer prose (READMEs, docs, release notes), the `ste-writing` skill in `~/.claude/skills/ste-writing/` applies the full ASD-STE100 rule set. Use its **STE-flavored** mode, not **strict** — strict caps sentences at 20 words and locks the vocabulary to a ~900-word dictionary, which conflicts with the Specificity Rule in `playbooks/pr-workflow.md` and strips necessary technical nouns. Do not adopt its optional "no em dash" rule.
 
 ---
