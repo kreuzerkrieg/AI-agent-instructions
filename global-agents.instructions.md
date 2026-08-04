@@ -272,6 +272,15 @@ Never take claims at face value — not from the user, not from review comments,
 
 The same principle applies to **analysis reports and any response that makes factual claims**: only include claims backed by hard evidence from metrics, logs, or code. If a claim cannot be verified but is worth mentioning, label it explicitly as **"Speculation:"** or **"Unverified:"** — never present an inference as a fact. When computing metric deltas, always account for ALL label dimensions (e.g., `class`, `scheduling_group_name`) — aggregating across label values without awareness produces incorrect totals.
 
+### Absence of a signal is not evidence — prove the probe could have fired
+
+A diagnostic logged below the level a run actually uses reports "never happened" whatever happens, and it fails in the direction that looks like a result. Before treating a zero as a finding, grep the logs for **any** line from that logger at that level.
+
+- This cost three runs and a closed work item: "the service never sends this header" was reported as a confirmed finding across three fleet runs, from a probe logged at `info` while the harness ran `--default-log-level warn`. The proof it measured nothing was **0** `info` lines from that logger against 62,590 from another one in the same file.
+- **A codebase has several loggers with independent levels.** Raising one does not raise the others, and the one you want may belong to a dependency rather than the project. Enumerate them before concluding.
+- Prefer a **counter or metric** to a log line for anything a measurement depends on. A counter cannot be filtered away by a level.
+- **Never draw a conclusion from a snapshot of an in-flight measurement.** A mechanism reported "barely engaging, unlikely to explain anything" from 2 observed events mid-pass turned out to have fired 15,750 times by the end. Wait for the run, or say explicitly that the number is partial.
+
 ### Never fabricate specifics
 
 Never write a log line, timestamp, ticket ID, cluster ID, error message, DC/rack name, customer name, commit SHA, or any other specific fact that requires a data source, unless that data source has been queried **in this session**. Prior-session memory does not count.
@@ -459,6 +468,7 @@ Check what policy an imported constant was tuned against, resize the constant to
 
 - **Never use `pgrep -f` / `pkill -f` from a tool shell.** The pattern text appears in the tool's own `bash -c` command line, so it always self-matches: `pkill -f "s3-fleet.sh launch"` killed the agent's own shell, and `pgrep -f "s3-fleet"` reported a finished setup as still running. List with `ps -eo pid,etime,cmd | grep -E <pat> | grep -v grep`, then act on the PID. Kill orphaned children (e.g. `aws ec2 wait`) separately — they outlive the parent.
 - **`ssh` inside a `while read` loop eats the loop's input.** Always `ssh -n` (or `< /dev/null`) in a read loop, and print a count at the end of every fan-out, asserting it equals the expected host count. A 16-node check that silently visited one host reported `checked 1`, which reads exactly like 15 unreachable nodes.
+- **`setsid` forks, so `$!` is not the process you started.** The captured PID exits immediately while the real work continues under a new one, so `ps -p $!` reports "finished" while a build is still linking. Poll the **log** for a completion marker, never the PID. Corollary: a leftover artifact on disk makes a failed build look green — check the log for `error:`/`FAILED` **and** that the artifact is newer than every source you changed, before claiming a build passed. Both of these produced a false "build OK" in one session.
 - **The terminal tool SIGTERMs at ~10 minutes regardless of the timeout requested.** Start anything that may exceed ~8 minutes detached — `setsid nohup ./cmd > "$SCRATCH/cmd.log" 2>&1 &`, or the harness's background mode where it has one — and poll the log in short calls. If a resource-provisioning command is killed, query the provider for what was actually created *before* retrying, or the retry doubles the resources.
 
 > ❌ **STRICTLY PROHIBITED: `git push` / `git push --force` to any CODE REPOSITORY remote without explicit user instruction.** Local commits, amends, and rebases are always fine — but publishing code to a remote is the user's decision. Never push spontaneously after refining commits, addressing review comments, or rebasing. **Only exception:** the instructions repo (`~/.config/github-copilot/intellij/`) is always pushed immediately after edits. *This is the **canonical no-push rule** referenced throughout the PR workflow sections below.*
