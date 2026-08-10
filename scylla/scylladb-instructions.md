@@ -26,6 +26,28 @@ ScyllaDB is a high-performance distributed NoSQL database (C++23, Seastar framew
 
 Data flow: `cql3`/`alternator` → `storage_proxy` → `messaging_service` (RPC) → `replica/database` → `sstables`
 
+## Which Clone to Work In
+
+Two directories, one repository — they are **linked git worktrees**, so refs are shared but each
+has its own HEAD, index and working tree.
+
+| Directory | Owner | What the agent may do |
+|-----------|-------|-----------------------|
+| `~/Development/scylladb` | **Ernest** | Read only. Never change its checked-out branch or working tree. |
+| `~/Development/claude-scylladb` | **the agent** | Anything: `checkout`, `fetch`, `branch`, `reset`, build, dirty tree. |
+
+Rules:
+
+- Any command that writes to HEAD, the index or the working tree — `checkout`, `switch`, `reset`,
+  `stash`, `rebase`, `cherry-pick`, `clean`, a build — runs with `cd ~/Development/claude-scylladb`.
+- Reading code at another revision needs **no checkout at all**: use `git show <sha>:<path>`,
+  `git diff <a>..<b> -- <path>`, `git log -S`. Prefer these for PR and commit-series review.
+- Fetching is safe from either directory (refs are shared), but do it from the agent's clone so
+  the branch is ready to check out there. A branch already checked out in one worktree cannot be
+  checked out in the other — if git refuses a checkout, run `git worktree list` before debugging
+  anything else.
+- If Ernest's HEAD was moved anyway, restore the original branch and say so explicitly.
+
 ## Build System
 
 ### configure.py + Ninja (primary)
