@@ -81,7 +81,7 @@ Project-specific instructions are organized under subdirectories of this config 
 |------|-------------|-------------|
 | `~/Development/weekly-reports/AGENTS.md` | User mentions **weekly report**, "this week's report", "start a new week", or asks to record accomplishments/blockers/next-week items | Private GitHub repo `kreuzerkrieg/weekly-reports`. ISO-week-numbered markdown files, template-based. Auto-push is explicitly enabled here (overrides the global no-push rule). |
 
-**Weekly status email — never send via a Google/Gmail MCP connector.** Generate an email-ready markdown file next to the week's report at `~/Development/weekly-reports/<YYYY>/<YYYY>-W<NN>-email.md`, built fresh from `<YYYY>-W<NN>.md`: greeting "Hi Łukasz,", mirror the `##`/`###` structure, preserve bold ticket keys and Jira/PR links, omit the `## Needs your input` section and the top "Draft…" note, close with "Sincerely," / "Ernest". The user renders it and copy-pastes into Gmail.
+**Weekly status email — never send via a Google/Gmail MCP connector.** Generate an email-ready markdown file next to the week's report at `~/Development/weekly-reports/<YYYY>/<YYYY>-W<NN>-email.md`, built fresh from `<YYYY>-W<NN>.md`: greeting "Hi Łukasz,", mirror the `##`/`###` structure, preserve bold ticket keys and Jira/PR links, omit the `## Needs your input` section and the top "Draft…" note, close with "Sincerely," / "Ernest". Then render it: `python3 tools/md2email.py 2026/<file>.md > /tmp/out.html` from the weekly-reports repo, and hand the user that path. Do not stop at the markdown. Copying a rendered markdown preview carries the viewer's theme with it, so pasting from CLion's dark scheme puts black blocks behind every heading and table in Gmail; the script emits inline light styles that Gmail's sanitizer keeps. The user opens the HTML, selects all, copies, and pastes.
 
 **Always read the relevant file at the start of a session** using `read_file` — do not rely on memory from prior conversations. If a file does not exist yet, notify the user so it can be created.
 
@@ -651,3 +651,16 @@ This section is a **staging area**, not a permanent home. Periodically review it
 - Graduating is itself an instruction-file edit — commit and push it (see "Version Control for Instruction Files").
 
 <!-- Graduated: all prior entries folded into standing sections on 2026-05-24, 2026-07-29, and again on 2026-08-03. The section starts fresh below. -->
+
+### Weekly status email written from memory, without links or the render step (2026-08-13)
+
+Generated `<YYYY>-W<NN>-email.md` from memory of the format instead of re-reading this
+spec and `~/Development/weekly-reports/AGENTS.md`. The result dropped every Jira/PR link
+and bold ticket key (37 links in the corrected version, 0 in mine), invented its own
+section headings rather than mirroring the report, used a bare "Ernest" instead of
+"Sincerely," / "Ernest", and never ran `tools/md2email.py` — so the known dark-theme
+background bug went unaddressed. The same defect is already committed in W31's email.
+**Correct approach:** re-read both files before generating any recurring deliverable. A
+format you have produced before is exactly the kind you will misremember, and the spec
+spans two files — content shape here, rendering in the repo's own AGENTS.md.
+
