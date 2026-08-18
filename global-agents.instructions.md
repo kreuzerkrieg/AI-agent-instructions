@@ -97,6 +97,15 @@ Current in-flight task state living there: `_internal/s3-throttler/` (S3 send-ra
 
 A finding only belongs in this repo once it has outlived its task and become a rule that applies to future work — at which point it goes into a standing section, not a new file.
 
+Claude Code's memory directory (`~/.claude/projects/<mangled-project-path>/memory/`) is a second
+staging area feeding this repo, and it is scoped per project *path* — it does not follow a different
+clone of the same project or another machine. Split it the same way: task state and not-yet-proven
+lessons live there and are **deleted** when the work merges; a rule that has outlived its task
+graduates into a standing section here, and the memory file is then removed. Never leave the same
+rule in both places. Rewrite on graduation — the `**Why:** / **How to apply:**` shape and the
+`[[wiki-links]]` are memory-format artifacts, and a link to a memory that was never graduated points
+at nothing.
+
 ---
 
 ## Playbooks — Load On Demand
@@ -236,13 +245,19 @@ When the user types **`$cmd`**, list all defined `$`-prefixed commands with a on
 
 ## Prose Style
 
-Applies to PR bodies, commit message bodies, review replies, and status reports:
+Applies to PR bodies, commit message bodies, Jira comments, code comments, review replies, and status reports:
 
 - No marketing adjectives: seamless, robust, powerful, cutting-edge, effortless, next-generation.
 - Active voice with a named actor: "the parser reads the file", not "the file is read".
 - Use a verb for an action: "analyze the log", not "perform an analysis of the log".
 - Prefer the short word: use/utilize, start/initiate, make sure/ensure, about/regarding.
 - One name for one thing — do not alternate between two names for the same component.
+- Do not explain the reader's own code back to them. State the decision and its reason; drop the walkthrough of internals they wrote.
+- Do not call an old design's limitation a defect. Before writing that something was broken, ask what alternative the old code actually had — if it had none, it is a limitation.
+
+The last two both inflate a change's apparent value, and the reviewer who wrote the code spots
+either one immediately. When a justification gets cut for these reasons, grep for the same text in
+the commit messages, code comments, and docs — one such paragraph had propagated to five places.
 
 ### Dates and Times — Local Timezone, Unambiguous Format
 

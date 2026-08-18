@@ -763,7 +763,7 @@ When creating a PR in `scylladb/scylladb`, always perform these steps:
 5. **Apply labels:**
    - **`ai-assisted`** — always add when any part of the PR was AI-assisted
    - **`area/*`** — match the subsystem (e.g., `area/build`, `area/raft`, `area/cql`, `area/alternator`, `area/compaction`, `area/sstable`, `area/streaming`, etc.)
-   - **`backport/none`** — if the PR cover letter states no backport is needed (new features, refactoring, build-only changes)
+   - **`backport/none`** — if the PR cover letter states no backport is needed (new features, refactoring, build-only changes; see *Release Branches and Backporting* for the cmake-path-only case)
    - **`backport/<version>`** — if backporting is needed (bug fixes affecting released versions)
    - Other labels as appropriate: `bug`, `enhancement`, `type/code_cleanup`, `area/test`
 6. **PR cover letter** must follow the format in the global instructions (Problem → Changes → Issue reference → Backport decision). The backport decision and the label **must be consistent**.
@@ -797,6 +797,53 @@ update_pull_request  → enable maintainer_can_modify after creation if forgotte
 | `area/schema_changes` | Schema mutations, schema tables |
 | `area/topology_changes` | Node join/leave/replace/decommission |
 | `type/code_cleanup` | Pure refactoring, no behavior change |
+
+## Release Branches and Backporting
+
+### Cherry-pick the missing prerequisites — do not hand-adapt the code
+
+When a backport does not apply because the target branch lacks a refactor, find the commits that
+introduced what the branch is missing and cherry-pick those first. Do not resolve the conflicts by
+rewriting the new code back into the old branch's idiom.
+
+```bash
+git log --diff-filter=A -- <missing-file>   # what added the file
+git log -S'<missing-symbol>'                # what introduced the symbol
+```
+
+Prerequisites are usually refactors, so they cherry-pick cleanly. Extend the series with them and say
+so in the cover letter. Hand-adaptation costs more and pushes the branches further apart: on the
+2026.1 AWS-error backport it produced 5 conflicts, hand edits in 4 files, and 41 dangling
+`utils::http::` references that did not compile, where cherry-picking the 3 prerequisites first gave
+1 trivial conflict and files byte-identical to the merged 2026.2 versions. It also destroys
+provenance — no `(cherry picked from commit ...)` trail.
+
+Only hand-adapt when a prerequisite is genuinely too invasive for a release branch, and call that
+trade-off out explicitly.
+
+### A cmake-path-only bug has no user base — `backport/none`
+
+CI and every other developer configure through `configure.py`, which passes many flags via
+`CMAKE_CXX_FLAGS` and so masks CMakeLists.txt-level mistakes entirely. Ernest is effectively the only
+person configuring `build/<mode>` with `cmake`/presets directly, so a bug that manifests only on the
+cmake path is invisible to CI and affects one workstation.
+
+Fix it on master, default to `backport/none`, and say so plainly in the PR body — do not offer
+per-branch backport options even when older branches carry the same pattern.
+
+### `CLOSED` is a merge route, not a rejection
+
+A PR in `scylladb/scylladb` showing state `CLOSED` rather than `MERGED` has usually still been
+merged. Maintainers use two merge routes, and one of them lands the commits without GitHub marking
+the PR as merged. Do not treat `CLOSED` as evidence the work was rejected or abandoned, and do not
+raise it as a concern in a cover letter or review. Check whether the commits are actually reachable:
+
+```bash
+git merge-base --is-ancestor <sha> upstream/master
+git log --merges --ancestry-path <sha>..upstream/master | tail -1   # find the merge commit
+```
+
+Linking a closed-but-merged PR as a source reference is fine.
 
 ## Key Files for Orientation
 - `docs/dev/repository_layout.md` — Full directory-by-directory guide
