@@ -79,6 +79,7 @@ Project-specific instructions are organized under subdirectories of this config 
 
 | File | When to load | Description |
 |------|-------------|-------------|
+| `~/insurance-toolkit/AGENTS.md` + `CLAUDE.md` | Any work on Ernest's **personal pension or insurance** — a portal pull, a policy question, reconciling registers against insurers | Governed playbook: hard rules (never handle credentials, read-only, never enumerate `data/`), the registers-discover/portals-confirm method, and the portal traps. Read both in full before touching anything. Personal data lives in `data/<person>/` as an independent no-remote git repo, gitignored by the parent — never commit it upward. |
 | `~/Development/weekly-reports/AGENTS.md` | User mentions **weekly report**, "this week's report", "start a new week", or asks to record accomplishments/blockers/next-week items | Private GitHub repo `kreuzerkrieg/weekly-reports`. ISO-week-numbered markdown files, template-based. Auto-push is explicitly enabled here (overrides the global no-push rule). |
 
 **Weekly status email — never send via a Google/Gmail MCP connector.** Generate an email-ready markdown file next to the week's report at `~/Development/weekly-reports/<YYYY>/<YYYY>-W<NN>-email.md`, built fresh from `<YYYY>-W<NN>.md`: greeting "Hi Łukasz,", mirror the `##`/`###` structure, preserve bold ticket keys and Jira/PR links, omit the `## Needs your input` section and the top "Draft…" note, close with "Sincerely," / "Ernest". Then render it: `python3 tools/md2email.py 2026/<file>.md > /tmp/out.html` from the weekly-reports repo, and hand the user that path. Do not stop at the markdown. Copying a rendered markdown preview carries the viewer's theme with it, so pasting from CLion's dark scheme puts black blocks behind every heading and table in Gmail; the script emits inline light styles that Gmail's sanitizer keeps. The user opens the HTML, selects all, copies, and pastes.
@@ -679,3 +680,48 @@ background bug went unaddressed. The same defect is already committed in W31's e
 format you have produced before is exactly the kind you will misremember, and the spec
 spans two files — content shape here, rendering in the repo's own AGENTS.md.
 
+### A status label is not a transaction record (2026-08-19)
+
+Concluded that a policy was inactive because the provider's status page filed it
+under "history" — while the same provider's payments page showed it debited every
+month, the latest 18 days earlier, and showed no debits against the policy the
+status page called active. Reported the wrong conclusion twice, in both directions.
+**Correct approach:** when a system exposes both a status view and a transaction
+record, read the transaction record before stating what is active or being paid.
+Say which kind of evidence the conclusion rests on. A related trap: a field named
+`<something>-STATUS-UPDATE-DATE` is not the date of the event you want — find the
+document that records the event.
+
+### Do not re-run a stateful operation to satisfy a tool's precondition (2026-08-19)
+
+A diff tool refused to run because an earlier pull had recorded a failed step, so I
+re-ran the pull purely to clear the flag. The session had expired in the meantime,
+and because captures are named by date the re-run overwrote three good captures
+with login pages. The tool's own `--allow-partial` escape hatch was available and
+was what I used in the end anyway.
+**Correct approach:** when a check blocks on stale state, prefer the documented
+override plus an explicit caveat over re-executing the expensive, stateful,
+non-idempotent step. Ask what a re-run can destroy before starting it.
+
+### A git clone from a bundle loses the repo's hooks (2026-08-19)
+
+Restored a data repo from its backup bundle, committed, and the hook-driven backup
+did not fire — `.git/hooks` is not versioned, so a tracked `hooks/` directory does
+nothing after a clone. The clone also left an `origin` pointing at the bundle file,
+in a repo deliberately designed to have no remote.
+**Correct approach:** after any clone or restore, set `core.hooksPath` (or symlink
+the hooks) and drop unwanted remotes — then verify the *effect*, not the config, by
+committing and checking the artifact's mtime and contents. A silent hook and an
+absent hook look identical.
+
+### Hebrew (RTL) in generated HTML → PDF needs explicit bidi isolation (2026-08-19)
+
+A first render put the shekel sign on the left of some numbers and the right of
+others, interleaved Hebrew and Latin inside single table cells, and rendered a
+leading `~` as a minus sign so approximations looked like negative amounts.
+**Correct approach:** wrap every money value in a `direction:ltr; unicode-bidi:
+isolate` span and every Hebrew snippet inside Latin prose in a `direction:rtl;
+isolate` span; never mix scripts on one line of a table cell — stack two lines with
+explicit direction on each; and use a footnote marker rather than `~` or `≈`
+adjacent to digits. Then **rasterise the PDF and look at it** — `pdftoppm -png` —
+because none of these fail loudly.
