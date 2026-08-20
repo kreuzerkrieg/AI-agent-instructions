@@ -76,12 +76,14 @@ edit is safe even while the session is live. The restart is what makes it take e
 
 ## Traps
 
-- **`grep` is a shell function in a Claude Code tool shell.** It routes to the bundled `ugrep`,
-  and `grep -qE <pattern> <file>` fails there with `invalid max count`. A batch loop that gates on
-  that exit status silently skips every file and reports success. Detect in Python, or check the
-  loop's counters against the number of files you expected to change.
-- **Do not gate on the string.** `grep -c tool_search_tool_regex` counts prose mentions and
-  accounting fields. Only the block type proves poison.
+- **Every project directory name here starts with `-`.** The encoded cwd is `-home-ernest-...`, so
+  a relative path from `~/.claude/projects` reaches a command as options: `grep`, `wc`, `head` and
+  `stat` all reject `-home-.../x.jsonl`, grep with the misleading `invalid max count` (it read
+  `-h -o -m e-...`). Write `./"$f"`, pass `--` before the path, or use absolute paths. A sweep loop
+  that gates on such a command's exit status skips every file and reports success — always assert
+  the loop's counters against the number of files you expected to touch.
+- **Do not gate on the string.** `grep -c tool_search_tool_regex` counts prose mentions and the
+  `usage.server_tool_use` accounting field. Only the block type proves poison.
 
 Worked examples: `2ea3d876` ("S3 SlowDown Test Part 2") died on 2026-08-16, 15 s after six
 searches pinned a 17-name snapshot. `b5979bae` ("Load weekly report instructions") died on

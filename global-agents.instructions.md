@@ -485,6 +485,12 @@ Check what policy an imported constant was tuned against, resize the constant to
 
 - **Never use `pgrep -f` / `pkill -f` from a tool shell.** The pattern text appears in the tool's own `bash -c` command line, so it always self-matches: `pkill -f "s3-fleet.sh launch"` killed the agent's own shell, and `pgrep -f "s3-fleet"` reported a finished setup as still running. List with `ps -eo pid,etime,cmd | grep -E <pat> | grep -v grep`, then act on the PID. Kill orphaned children (e.g. `aws ec2 wait`) separately — they outlive the parent.
 - **`ssh` inside a `while read` loop eats the loop's input.** Always `ssh -n` (or `< /dev/null`) in a read loop, and print a count at the end of every fan-out, asserting it equals the expected host count. A 16-node check that silently visited one host reported `checked 1`, which reads exactly like 15 unreachable nodes.
+- **A path that starts with `-` reaches the command as options.** Claude Code's own transcript
+  directories are named for the encoded cwd (`~/.claude/projects/-home-ernest-.../`), so a
+  relative path from there breaks `grep`, `wc`, `head` and `stat` alike — grep reports
+  `invalid max count`, which names neither the path nor the real cause. Prefix `./`, pass `--`
+  before the path, or use an absolute path. In a fan-out loop this is silent: the failing command
+  exits non-zero, the loop skips the file, and the run reports success over zero work.
 - **`setsid` forks, so `$!` is not the process you started.** The captured PID exits immediately while the real work continues under a new one, so `ps -p $!` reports "finished" while a build is still linking. Poll the **log** for a completion marker, never the PID. Corollary: a leftover artifact on disk makes a failed build look green — check the log for `error:`/`FAILED` **and** that the artifact is newer than every source you changed, before claiming a build passed. Both of these produced a false "build OK" in one session.
 - **The terminal tool SIGTERMs at ~10 minutes regardless of the timeout requested.** Start anything that may exceed ~8 minutes detached — `setsid nohup ./cmd > "$SCRATCH/cmd.log" 2>&1 &`, or the harness's background mode where it has one — and poll the log in short calls. If a resource-provisioning command is killed, query the provider for what was actually created *before* retrying, or the retry doubles the resources.
 
