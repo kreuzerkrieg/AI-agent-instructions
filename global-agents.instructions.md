@@ -294,6 +294,23 @@ The last two both inflate a change's apparent value, and the reviewer who wrote 
 either one immediately. When a justification gets cut for these reasons, grep for the same text in
 the commit messages, code comments, and docs — one such paragraph had propagated to five places.
 
+### Pick the Shape That Carries the Idea
+
+If pseudocode, a table, or a diagram illustrates an idea better than prose does, use it. This is not
+a formatting preference — a shape with slots exposes what prose lets you leave out.
+
+- **Table** — for anything with two or more axes: options against criteria, hypotheses against the
+  evidence for each, metrics before and after, a marker mapped to its cause. A column forces every
+  row to be filled in; in prose the weak entry gets demoted to a parenthetical and disappears.
+- **Diagram** (ASCII is fine) — for sequence, branching, and layering: a `co_await` chain, a factory
+  dispatch, who calls whom, where a guard sits relative to a mutation. Prose states a branch exists;
+  a diagram shows which side each step is on.
+- **Pseudocode** — for an algorithm or a proposed control flow, before there is real code to point at.
+
+Keep prose for the parts that are genuinely narrative: why a hypothesis is ruled out, what the
+trade-off costs, what the reader should do next. The goal is one shape per kind of content, not a
+table wrapped around every answer.
+
 ### Dates and Times — Local Timezone, Unambiguous Format
 
 Every date and time shown to the user is in the machine's **local timezone**.
