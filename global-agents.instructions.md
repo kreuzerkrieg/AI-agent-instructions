@@ -204,6 +204,24 @@ clean, overwrite-safe copy of the repo template.
 
 Before using `curl` / REST / `gh api`, scan the current tool list for an MCP that already speaks the target service. Falling back to REST when an MCP is configured is wasteful and can expose credentials needlessly — it once led to writing a Jira API token into `~/.netrc` when `mcp_atlassian_fetch` was available the whole time. Only fall back when the MCP is genuinely absent, and even then prefer existing `~/.netrc` entries over asking for new credentials.
 
+### Deferred tools load through ToolSearch
+
+Every `mcp__*` server — Atlassian Rovo, Gmail, GitHub, Prometheus, VictoriaLogs, Datadog, CLion — is
+**deferred** in Claude Code. The tool list carries the name only, in a `<system-reminder>`, and the
+schema arrives when you call `ToolSearch` with `select:<exact_tool_name>` or a keyword. Call a
+deferred tool before that and you get `InputValidationError`, which reads like a broken server.
+
+So **a tool search that finds nothing is not evidence that a service is unavailable.** Before you
+report an MCP server as absent, call `ToolSearch("select:<full_tool_name>")` with the exact name from
+the system reminder. Only that failing is evidence — the claim needs the same proof as any other, per
+*Verify Everything* below.
+
+On 2026-07-30 an empty search result was read as "the Atlassian MCP server is unavailable", and a
+weekly report went out built from GitHub alone with every Jira status labelled unverified. Jira had
+been connected the whole time. The tool searched with was `tool_search_tool_regex`, which indexed
+only the always-on tools; the harness removed it around 2026-08-16, and the sessions that had used it
+are now unsendable (`playbooks/poisoned-session-recovery.md`).
+
 ### Markdown conversion
 
 Use **`microsoft/markitdown`**'s `convert_to_markdown` for all markdown conversion. It accepts local file paths and URIs (http:, https:, data:) and handles PDF, DOCX, XLSX, PPTX, images, audio, and web pages.

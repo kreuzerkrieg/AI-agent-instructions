@@ -33,7 +33,17 @@ Once connected, the agent can:
 
 ### Usage notes
 - The user may need to say "use Atlassian MCP" or similar in their prompt to hint that Jira tools should be used.
-- If the MCP tools are not available in the current session's tool list, the Atlassian MCP server may not be connected — ask the user to check MCP server status in CLion settings.
+- **An empty tool list is not proof the server is down.** In Claude Code the Atlassian tools are
+  deferred: they never appear in the visible tool list, only as names in a `<system-reminder>`, and
+  the schema loads on `ToolSearch("select:mcp__claude_ai_Atlassian_Rovo__searchJiraIssuesUsingJql")`.
+  Probe with that exact call first. Only if it also fails may the server be disconnected — then ask
+  the user to check MCP server status in CLion settings. See *Deferred tools load through ToolSearch*
+  in the core instructions for what reading this wrong once cost.
+
+### Query notes
+- The Jira `cloudId` is `scylladb.atlassian.net`.
+- Search with `searchJiraIssuesUsingJql`, and pass a **narrow `fields` list**. The default pulls
+  `description`, which overflows the result on any query wide enough to be useful.
 
 ### Alternative: API token via ~/.netrc
 If MCP is unavailable, Jira can also be accessed via REST API with an API token stored in `~/.netrc`:
