@@ -121,6 +121,7 @@ session start. Read the file when its trigger fires, and do not preload them "ju
 | `playbooks/machine-setup.md` | Provisioning a new machine or clone: gitleaks hooks, `.copilotignore` / Copilot OOM, AWS credential refresh |
 | `playbooks/chat-history-export.md` | Exporting Copilot/CLion transcripts, rebuilding the `ai-search` indexes |
 | `playbooks/mcp-and-jira.md` | Jira or Confluence work, or evaluating a new MCP server |
+| `playbooks/poisoned-session-recovery.md` | A Claude Code session fails every turn in 1-2 s with `400 Tool reference '<name>' not found in available tools` |
 
 The rules those procedures must obey stay here in the core file — a playbook carries mechanics, never
 a rule you could violate without knowing to look it up.

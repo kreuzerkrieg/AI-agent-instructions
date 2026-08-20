@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Un-poison a Claude Code transcript.
+
+A server-side tool search pins the tool roster of that instant into the
+transcript. When a pinned name later stops being sent, every request for that
+session fails with
+
+    API Error: 400 Tool reference '<name>' not found in available tools
+
+This drops every entry whose message content holds a `server_tool_use` or a
+`tool_search_tool_result` block, and reparents each dropped entry's children
+onto the nearest surviving ancestor so the parentUuid chain stays whole. It
+refuses to write if any parent would dangle, and keeps a .poisoned.bak backup.
+
+Usage: unpoison-session <transcript.jsonl> [--apply]
+
+Without --apply it reports what it would drop and writes nothing. Transcripts
+live in ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl. Never run it against the
+session you are working in. Background and the batch sweep:
+playbooks/poisoned-session-recovery.md
+"""
+import json, os, shutil, sys
+
+POISON = {"server_tool_use", "tool_search_tool_result"}
+
+
+def blocks(entry):
+    msg = entry.get("message")
+    if not isinstance(msg, dict):
+        return []
+    content = msg.get("content")
+    return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+
+
+def main():
+    path = sys.argv[1]
+    apply = "--apply" in sys.argv[2:]
+
+    raw = open(path, encoding="utf-8").read().splitlines()
+    entries = [json.loads(l) for l in raw if l.strip()]
+
+    # uuid -> parentUuid, for ancestor walking
+    parent = {e["uuid"]: e.get("parentUuid") for e in entries if e.get("uuid")}
+
+    drop_idx, drop_uuid = [], set()
+    for i, e in enumerate(entries):
+        hit = {b.get("type") for b in blocks(e)} & POISON
+        if hit:
+            drop_idx.append(i)
+            if e.get("uuid"):
+                drop_uuid.add(e["uuid"])
+            names = [b.get("name") for b in blocks(e) if b.get("name")]
+            print(f"  drop line {i+1}: {sorted(hit)} {names} uuid={e.get('uuid','')[:8]}")
+
+    if not drop_idx:
+        print("nothing to drop — transcript is clean")
+        return 0
+
+    # nearest surviving ancestor for each dropped uuid
+    def survivor(u):
+        seen = set()
+        while u in drop_uuid and u not in seen:
+            seen.add(u)
+            u = parent.get(u)
+        return u
+
+    remapped = 0
+    for e in entries:
+        p = e.get("parentUuid")
+        if p in drop_uuid:
+            e["parentUuid"] = survivor(p)
+            remapped += 1
+
+    kept = [e for i, e in enumerate(entries) if i not in set(drop_idx)]
+
+    # sanity: every parentUuid must resolve to a kept entry (or be None)
+    kept_uuids = {e["uuid"] for e in kept if e.get("uuid")}
+    dangling = [e.get("uuid", "?")[:8] for e in kept
+                if e.get("parentUuid") and e["parentUuid"] not in kept_uuids]
+    print(f"\n{len(entries)} entries -> {len(kept)} kept, "
+          f"{len(drop_idx)} dropped, {remapped} parentUuid remapped")
+    if dangling:
+        print(f"ABORT: {len(dangling)} dangling parentUuid: {dangling[:10]}")
+        return 1
+    print("parentUuid chain intact")
+
+    if not apply:
+        print("\ndry run — rerun with --apply to write")
+        return 0
+
+    backup = path + ".poisoned.bak"
+    if not os.path.exists(backup):
+        shutil.copy2(path, backup)
+        print(f"backup: {backup}")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        for e in kept:
+            fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+    os.replace(tmp, path)
+    print(f"wrote {path}")
+    return 0
+
+
+sys.exit(main())
