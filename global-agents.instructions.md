@@ -82,7 +82,22 @@ Project-specific instructions are organized under subdirectories of this config 
 | `~/insurance-toolkit/AGENTS.md` + `CLAUDE.md` | Any work on Ernest's **personal pension or insurance** — a portal pull, a policy question, reconciling registers against insurers | Governed playbook: hard rules (never handle credentials, read-only, never enumerate `data/`), the registers-discover/portals-confirm method, and the portal traps. Read both in full before touching anything. Personal data lives in `data/<person>/` as an independent no-remote git repo, gitignored by the parent — never commit it upward. |
 | `~/Development/weekly-reports/AGENTS.md` | User mentions **weekly report**, "this week's report", "start a new week", or asks to record accomplishments/blockers/next-week items | Private GitHub repo `kreuzerkrieg/weekly-reports`. ISO-week-numbered markdown files, template-based. Auto-push is explicitly enabled here (overrides the global no-push rule). |
 
-**Weekly status email — never send via a Google/Gmail MCP connector.** Generate an email-ready markdown file next to the week's report at `~/Development/weekly-reports/<YYYY>/<YYYY>-W<NN>-email.md`, built fresh from `<YYYY>-W<NN>.md`: greeting "Hi Łukasz,", mirror the `##`/`###` structure, preserve bold ticket keys and Jira/PR links, omit the `## Needs your input` section and the top "Draft…" note, close with "Sincerely," / "Ernest". Then render it: `python3 tools/md2email.py 2026/<file>.md > /tmp/out.html` from the weekly-reports repo, and hand the user that path. Do not stop at the markdown. Copying a rendered markdown preview carries the viewer's theme with it, so pasting from CLion's dark scheme puts black blocks behind every heading and table in Gmail; the script emits inline light styles that Gmail's sanitizer keeps. The user opens the HTML, selects all, copies, and pastes.
+**Weekly status email — never *send* via a Google/Gmail MCP connector; a draft is fine.** Generate an email-ready markdown file next to the week's report at `~/Development/weekly-reports/<YYYY>/<YYYY>-W<NN>-email.md`, built fresh from `<YYYY>-W<NN>.md`: greeting "Hi Łukasz,", mirror the `##`/`###` structure, preserve bold ticket keys and Jira/PR links, omit the `## Needs your input` section and the top "Draft…" note, close with "Sincerely," / "Ernest". Then render it: `python3 tools/md2email.py 2026/<file>.md > /tmp/out.html` from the weekly-reports repo, and hand the user that path. Do not stop at the markdown. Copying a rendered markdown preview carries the viewer's theme with it, so pasting from CLion's dark scheme puts black blocks behind every heading and table in Gmail; the script emits inline light styles that Gmail's sanitizer keeps. The user opens the HTML, selects all, copies, and pastes.
+
+**Creating the draft through the Gmail connector works** — tried 20/08/2026 at Ernest's request,
+with the full report as `htmlBody` plus a plain-text `body`, and it went through cleanly. That is
+worth knowing because the connector had previously failed on a large HTML body while a one-word
+probe succeeded (see *"Session expired" is often a payload timeout*), and because the probe write
+clobbered a real draft — so **list drafts first** and confirm nothing is about to be overwritten.
+Two things Gmail does to an API-created draft, neither fixable from our side:
+
+- every link is rewritten to a `https://www.google.com/url?q=…&source=gmail&ust=…` redirect,
+  including in the plain-text part, where the URLs become unreadable;
+- the sanitizer strips `background` from `<code>` spans while keeping the rest of the styling.
+
+Both are cosmetic; the copy-paste route from `/tmp/out.html` avoids them. **Leave the recipient
+empty** — do not guess or recall Łukasz's address — and produce the markdown and rendered HTML as
+well, so the paste route stays available. Sending remains the user's action, always.
 
 **Always read the relevant file at the start of a session** using `read_file` — do not rely on memory from prior conversations. If a file does not exist yet, notify the user so it can be created.
 
