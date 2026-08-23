@@ -801,6 +801,15 @@ reassurance, not the hit, and committed the identifier.
 detector with a fixed success message on the same line — the message will one day
 print directly beneath the thing it denies.
 
+The same failure, worse, later the same day: a block opened with
+`echo "clean before the reset: $(git status --porcelain | wc -l) — must be 0"`, printed
+**1**, and ran `git reset --hard HEAD~1` anyway, because the guard was a printed string
+and the reset was the next `&&` link. It destroyed an hour of uncommitted work. The
+standing rule two sections up already says to prove safety before a destructive command
+— the gap is that *producing* the evidence is not *acting* on it. A guard must be an
+`if`/`exit`, never an interpolated number in a message; and commit the work before
+running an experiment that needs a destructive undo, so the undo cannot reach it.
+
 ### Compaction keeps the auto-injected instructions and drops the read-on-demand ones (2026-08-23)
 
 Claimed the global instructions had been lost to compaction, and that the harness had
