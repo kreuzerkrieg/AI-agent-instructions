@@ -76,6 +76,25 @@ When the user says **"refine PR"**, perform the following sequence:
 7. **Final diff check**: `git diff <original_HEAD> HEAD --stat` should show only intentional differences (removed noise, fixed skips, etc.) — no accidental content loss.
 8. **Do NOT push** — wait for explicit user instruction (canonical no-push rule in *Terminal Command Rules*, `global-agents.instructions.md`).
 
+### Structure is the deliverable; style conformance is not
+
+Two of the checks above are not the same kind of thing, and conflating them fails in
+both directions.
+
+**Always do the structural work.** One logical change per commit, no bundles (a message
+that says "also here" is the author admitting it), no series where five commits edit a
+file the series itself introduces, messages that match their diff. This is what makes
+`git log` readable, and it is worth doing even for a private repo whose owner has said
+they will never read the code — the log is the view they *do* read.
+
+**Do not restyle to match a convention the repo has never followed.** If `master`
+already carries declarative subjects, or optional module prefixes, rewriting the series
+to `module: imperative` is pure churn: it rewrites every SHA and teaches the reviewer
+nothing. Check the last ten commits on the main branch before "fixing" any subject.
+
+Told this directly on 2026-08-23, after skipping a 28-subject rewrite (right) and then
+offering to skip the split-and-squash work too (wrong).
+
 ---
 
 ## PR Interaction Workflow
