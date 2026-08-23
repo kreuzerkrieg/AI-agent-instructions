@@ -526,7 +526,14 @@ Check what policy an imported constant was tuned against, resize the constant to
 - Always use `git --no-pager` or pipe through `| cat` as an alternative when redirection is inconvenient.
 - To amend an older commit, use fully non-interactive techniques:
   - **Cherry-pick rebuild:** `git reset --hard <SHA>~1`, then `git cherry-pick --no-commit <SHA> && git commit -F <msg-file>`, then `git cherry-pick <SHA>..<original-HEAD>`.
-  - **Fixup + autosquash:** `git commit --fixup=<SHA>` (content) or `git commit --allow-empty --fixup=amend:<SHA> -F <msg-file>` (message), then `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1` — the `GIT_SEQUENCE_EDITOR=true` prevents any editor from opening, making the `-i` flag safe.
+  - **Fixup + autosquash (content):** `git commit --fixup=<SHA>`, then `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash <SHA>~1` — the `GIT_SEQUENCE_EDITOR=true` prevents any editor from opening, making the `-i` flag safe.
+  - **Rewriting an older commit's MESSAGE:** `git commit --fixup=amend:<SHA> -F <file>` does **not** work — git answers `fatal: options '-F' and '--fixup' cannot be used together`. Drive `reword` non-interactively instead, supplying the message through `GIT_EDITOR`:
+    ```bash
+     GIT_SEQUENCE_EDITOR="sed -i -e 's/^pick <SHA>/reword <SHA>/'" \
+     GIT_EDITOR="cp /tmp/msg.txt" \
+     git rebase -i <SHA>~1
+    ```
+    `GIT_EDITOR` is invoked as `cp /tmp/msg.txt <commit-msg-file>`, so the message lands with no editor. The same `GIT_SEQUENCE_EDITOR` trick marks commits `fixup`/`squash` for a non-interactive squash.
 - To amend the most recent commit message: write the new message to a file, then `git commit --amend -F <msg-file>`. Never use `git commit --amend` without `-m` or `-F` — that opens an editor.
 - **Commit message temp files:** always use `printf '...\n\n...\n' > /tmp/msg.txt` rather than bash heredocs. Heredocs silently drop blank lines, causing the subject and body to merge onto one line. Alternatively, use the `create_file` tool.
 - **Before any destructive command** (`git reset --hard`, `git checkout -- .`, force-push): **prove safety first** by running `git diff <local> <remote>` to confirm no unique local content would be lost. Never proceed on an assumption of safety — verify with evidence, then execute.
@@ -806,3 +813,15 @@ session — `~/insurance-toolkit/AGENTS.md`, a `sites/<provider>.md`, a playbook
 those live only in conversation history. After any compaction, re-read the project file
 the routing table points at. And before blaming a harness, grep the context for the
 notice you think it sent.
+
+### `git checkout <file>` restores from the index, not from HEAD (2026-08-23)
+
+Split a bundled commit by rebasing to `edit`, then ran `git checkout <file>` to get the
+parent's version back before re-applying one change at a time. The file was already
+staged, so checkout handed back the **staged** version — the finished one. The build
+script's `assert` then failed on text it had already rewritten, and because the failing
+step was only newline-separated from the commit that followed, the commit ran anyway and
+captured every change under a message describing one of them.
+**Correct approach:** `git checkout HEAD -- <file>`, or `git show <sha>:<file> > <file>`
+when you want a specific commit's version. And treat a newline between steps exactly like
+the `;` in the entry above — neither one stops on failure. Chain with `&&`, or `set -e`.
