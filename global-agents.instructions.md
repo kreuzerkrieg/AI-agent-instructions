@@ -782,3 +782,27 @@ isolate` span; never mix scripts on one line of a table cell — stack two lines
 explicit direction on each; and use a footnote marker rather than `~` or `≈`
 adjacent to digits. Then **rasterise the PDF and look at it** — `pdftoppm -png` —
 because none of these fail loudly.
+
+### `grep ... ; echo "clean"` is not a check (2026-08-23)
+
+Ran a pre-commit scan as `git diff --cached | grep -oP '\d{6,14}' | sort -u; echo "(blank = clean)"`.
+The grep found a real identifier, printed it, and the `echo` printed "(blank = clean)"
+underneath it anyway, because `;` runs the next command unconditionally. Read the
+reassurance, not the hit, and committed the identifier.
+**Correct approach:** a check must fail, not narrate. Use `if grep -q <pat>; then echo
+"FOUND"; exit 1; fi`, or `... | grep . && { echo FAIL; exit 1; }`. Never pair a
+detector with a fixed success message on the same line — the message will one day
+print directly beneath the thing it denies.
+
+### Compaction keeps the auto-injected instructions and drops the read-on-demand ones (2026-08-23)
+
+Claimed the global instructions had been lost to compaction, and that the harness had
+said the file was "too large to include". Neither was true: `~/.claude/CLAUDE.md` and
+the `@`-imported global file are re-injected verbatim at the top of every context
+window, compaction included, and the full text was present the whole time. The invented
+system message was the tell — reaching for a mechanism instead of checking.
+**Correct approach:** what compaction actually drops is every file read *during* the
+session — `~/insurance-toolkit/AGENTS.md`, a `sites/<provider>.md`, a playbook — because
+those live only in conversation history. After any compaction, re-read the project file
+the routing table points at. And before blaming a harness, grep the context for the
+notice you think it sent.
