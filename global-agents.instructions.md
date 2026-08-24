@@ -109,7 +109,7 @@ Per-task handoff specs — investigation notes for one PR, an implementation pla
 ~/.config/JetBrains/CLion<version>/scratches/GitHubCopilot/_internal/<topic>/
 ```
 
-Current in-flight task state living there: `_internal/s3-throttler/` (S3 send-rate throttler — PR 30775, SCYLLADB-3249, SRE-1418: fleet-run measurements, the code-level reasons the throttler does not yet work, the retry-pacing implementation plan, and the no-budget-for-more-fleet-runs constraint). **Note:** the scratches path is pinned to the CLion major version, so it does not follow a version upgrade and is not synced between machines. If a handoff spec needs to survive either, give it its own repo rather than adding it back here.
+Current in-flight task state living there: `_internal/s3-throttler/` (S3 send-rate throttler — PR 30775, SCYLLADB-3249, SRE-1418: fleet-run measurements, the code-level reasons the throttler does not yet work, the retry-pacing implementation plan, and — from 2026-08-24 — `HANDOVER-2026-08-24.md`, a single-machine reproduction of S3 503s that removes the fleet-budget constraint for controller-mechanics work but cannot reproduce loss.)
 
 A finding only belongs in this repo once it has outlived its task and become a rule that applies to future work — at which point it goes into a standing section, not a new file.
 
@@ -347,6 +347,8 @@ A diagnostic logged below the level a run actually uses reports "never happened"
 - **A codebase has several loggers with independent levels.** Raising one does not raise the others, and the one you want may belong to a dependency rather than the project. Enumerate them before concluding.
 - Prefer a **counter or metric** to a log line for anything a measurement depends on. A counter cannot be filtered away by a level.
 - **Never draw a conclusion from a snapshot of an in-flight measurement.** A mechanism reported "barely engaging, unlikely to explain anything" from 2 observed events mid-pass turned out to have fired 15,750 times by the end. Wait for the run, or say explicitly that the number is partial.
+- **A probe that parses log text inherits the level of the line it parses.** Third occurrence, 2026-08-24: a test whose "throttling detector" tapped seastar's log stream and counted lines from `default_aws_retry_strategy` reported "0 retries, 0 throttles" across three runs, because the line it counts is emitted at `debug` and the runs passed `--default-log-level warn`. Re-run with that one logger at `debug`: 32/13/17 throttles. **The blinding flag was in the command I wrote myself**, so there was nothing external to notice — which is exactly why the check has to be mechanical: before reporting a zero from a log-derived probe, count lines from that specific logger and show the number.
+- **Check whether the probe raises the level it depends on, or leaves it to the caller.** The test above only redirected the stream; it never set a level. A detector that does not guarantee its own input is a detector that reports zero by default, and its author may already know — read the doc before treating its silence, or its number, as ground truth.
 
 ### Never fabricate specifics
 
