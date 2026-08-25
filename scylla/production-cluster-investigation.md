@@ -579,6 +579,186 @@ between filesystem view and Scylla-reported bytes, defer to
 - Multi-mount and per-shard summing traps
 - A concrete PromQL recipe for `du` vs Prometheus reconciliation
 
+---
+
+## 11. Lessons Learned — 2026-08-17/18, cluster #51675 (CUSTOMER-633)
+
+Written after an on-call session in which the agent reached several wrong
+conclusions before the user caught them. Every item below is a mistake that
+actually happened, or a fact that had to be discovered the hard way.
+
+### 11.1 Metric selection — the dominant failure mode
+
+**Never guess a metric name; enumerate it.** `scylla_column_family_live_sstables`
+(plural) does not exist. It is `scylla_column_family_live_sstable`, singular. A
+guessed name returns an empty vector, which is indistinguishable from "no data".
+
+```promql
+count by (__name__) ({__name__=~"scylla_.*sstable.*", cluster="#NNNN"})
+```
+
+**On a tablets cluster, `scylla_streaming_total_incoming_bytes` is a trap.** It
+does **not** cover tablet migration, which moves data via `stream_blob` /
+`stream_sstables`. On #51675 this counter was flat **zero** across a window that
+provably contained a 7.77 GB tablet stream (confirmed from the node's own log:
+`stream_bytes=7767931136 stream_time=261.516s stream_bw=29MB/s`). Concluding
+"no streaming" from it was wrong.
+
+**Use `scylla_network_bytes_received` for actual tablet-migration ingest.** It
+was the only counter that reflected the transfer. Caveat: it includes client
+traffic, so it is only clean on a node not serving CQL.
+
+**`scylla_repair_row_from_disk_bytes` is DISK READS, not network.** The network
+counters are `scylla_repair_rx_row_bytes` / `scylla_repair_tx_row_bytes`.
+Inferring sender/receiver roles from the disk metric produced a completely
+wrong picture of who was feeding whom — on #51675 repair network transfer was
+~1 MB/s cluster-wide while the disk metric read 3-32 MB/s.
+
+**`scylla_streaming_finished_percentage` reads 1 for every op on a tablets
+cluster** (bootstrap/rebuild/replace/removenode/repair alike). It is the legacy
+gauge and carries no information there.
+
+**Regex scoping cuts both ways.** `scylla_.*streaming.*` does not match
+`stream_blob`. When hunting for a subsystem, search `.*stream.*` before
+concluding the metric does not exist.
+
+**`scylla_transport_requests_served` counts requests SERVED — including error
+responses.** On #51675 it read ~5,360/s while ~78% of writes were returning
+UnavailableException. Reporting it as evidence of health was wrong. Always pair
+it with `scylla_storage_proxy_coordinator_write_unavailable` /
+`..._read_unavailable`.
+
+**An absent `*_unavailable` series is not zero.** `read_unavailable` did not
+exist for this cluster at all. Say "unquantified", never "fine".
+
+### 11.2 Distinguishing a symptom from ambient behaviour
+
+**`direct_failure_detector` timeouts against dead nodes are ambient.** *Every*
+live node logs them continuously once any node is dead. Reading them as
+evidence that one specific node was "stuck waiting on dead nodes" was the
+session's central error — a healthy, fully-serving node was emitting the
+identical lines at the same time.
+
+**Rule:** before attributing a log line to a node's pathology, grep a *known
+healthy* node for the same line in the same window. If both show it, it is
+background noise.
+
+**Do not inherit a frame from a ticket comment without testing it.** A comment
+stated the node "got stuck… stopped disk grow". Direct measurement showed disk
+*was* growing. The comment was a 20-minute-old human snapshot; metrics are
+authoritative.
+
+**Watch the direction of causality.** "X is in the set that blocks the
+coordinator" is not "X is blocked by the coordinator". These were conflated and
+produced a bogus circular-deadlock narrative.
+
+**`named gate closed` on `no_wait` verb handlers is not proof of teardown.**
+
+### 11.3 Time-window selection
+
+**Widen until you find the onset.** The sstable accumulation on the crashed node
+was analysed in a 7-hour window showing ~133k sstables. The real shape was a
+**32+ hour linear ramp**: ~40k (Aug 15 00:00Z) → ~105k (Aug 16 00:00Z) → ~131k
+(Aug 16 08:00Z), roughly +2,700/hour. The narrow window caught only the last
+~10k and misrepresented a multi-day trend as an event.
+
+**Check whether a crash falls *inside* the analysis window.** The node
+segfaulted at 08:59Z, mid-window. Peak values could therefore have been
+post-restart reshape artifacts rather than the pre-crash cause. They were not —
+but that required explicit verification by sampling instants *before* the crash.
+
+**Never build an ETA on a single short-window rate.** `.126` growth read
+34 GiB/h over 4h but 11.6 GiB/h over 12h — a 3x spread, i.e. a 15h vs 46h ETA.
+
+**`scylla_column_family_live_disk_space` is a poor progress proxy** during a
+rebuild: compaction moves it in *both* directions, so it is not monotonic and
+min/max over a window can mislead badly.
+
+**To answer "is it bursty or steady", use a fine step and read min/max/mean** —
+not a single instant `rate()`. A 60s-step range over 2h settled in one query
+what an instant rate could not: min 5.9 / max 11.4 / mean 8.3 MB/s is clearly
+steady, not 29 MB/s bursts with troughs.
+
+### 11.4 Raft topology + tablets (2026.2.2 semantics, read from source)
+
+Verified by reading `service/topology_coordinator.cc` at the customer's exact
+commit. All of the following were counter-intuitive:
+
+**Tablet `rebuild_v2` runs INDEPENDENTLY of the raft topology request queue.** A
+barrier-blocked coordinator does **not** stop tablet rebuilds. Data
+re-replication continued throughout. Do not assume a topology deadlock halts
+recovery.
+
+**The coordinator CANCELS queued requests — it does not hold them.** When
+nothing can proceed it logs `no request can proceed. Dead nodes: {...}` and
+calls `cancel_all_requests()` (`:330` → `:2927`). So "the removenode is queued
+and will drain when unblocked" is false; it must be **re-issued**.
+
+**`--ignore-dead-nodes` does not bypass the queue.** It populates
+`topo.ignored_nodes`, which is **cluster-wide, not per-request** (see the
+comment at `:499`). Admission requires that **every** dead node appear in that
+set:
+
+```cpp
+for (auto id : dead_nodes) {
+    if (!exclude_nodes.contains(id)) { return false; }
+}
+```
+
+**Exclusion applies only to `remove` and `replace`** — deliberately not to
+bootstrap/join, because bootstrap streaming does not support ignored_nodes.
+
+**For a `rebuild` request, only the requesting node must be alive**
+(`!dead_nodes.contains(req.first)`) — no ignore list helps if the node itself is
+in the dead set.
+
+**`dead_nodes` is computed only from `topo.normal_nodes`,** and the barrier is
+reached only when `transition_nodes` is empty. A node appearing in the dead set
+is therefore a NORMAL node the gossiper reports as not alive — not necessarily a
+node mid-transition.
+
+**A joining node can be simultaneously `state=normal` to the tablet load
+balancer and in the coordinator's dead set** — that split is what `RPC_READY=0`
+looks like from two different subsystems.
+
+**`Starting gossip by operator request` is `nodetool enablegossip`, not a
+restart.** Check the gossip *generation* to date the actual process start.
+
+### 11.5 Reading source at the customer's version — this worked
+
+The §6 Step 6 procedure paid off and should be the default:
+
+1. Version + build id from the startup banner in VictoriaLogs:
+   `Scylla version 2026.2.2-0.20260719.0d1dd27d50b2 with build-id c952e2cb...`
+2. The short SHA in the version string is the commit.
+3. **2026.x is OSS `scylladb/scylladb`** (unified versioning) — no enterprise
+   clone needed.
+4. The local clone was on an unrelated branch (`sdb-2471`), but the commit was
+   already fetched. **`git show <sha>:<path>` and `git grep <pat> <sha>` work
+   without checking anything out** — no need to disturb the working tree.
+
+Grep the log message text to find the code that emits it; it is the fastest
+path from an observed symptom to the governing logic.
+
+### 11.6 VictoriaLogs query hygiene
+
+- Confirming filter shape with `cluster:"NNNN" | limit 2` before trusting an
+  empty result worked and should stay standard practice.
+- **Multi-term OR queries with quoted phrases silently returned nothing** while
+  a single bare term matched 5,867 lines in the same window. When an OR query
+  comes back empty, re-run one term alone as a control before concluding
+  absence.
+- `| stats by (hostname, server_id) count()` is an excellent first move: it maps
+  the whole fleet, exposes nodes absent from `nodetool status`, and reveals
+  `node_type=manager` hosts that carry no Scylla data metrics.
+
+### 11.7 Session mechanics
+
+MCP servers added with `claude mcp add` are **not available to the running
+session** — they attach at startup. `claude mcp list` will health-check them as
+connected while `ToolSearch` still finds nothing. Restart before relying on them.
+
+
 
 
 
