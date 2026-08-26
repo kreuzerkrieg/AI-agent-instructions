@@ -628,6 +628,49 @@ Always match the existing style of the file and directory you edit. Some directo
 - **clang-tidy**: runs in CI on PRs; checks `bugprone-use-after-move`
 - **Build system alignment**: `scripts/compare_build_systems.py` — when reviewing or making changes to `CMakeLists.txt`, `configure.py`, or `cmake/mode.*.cmake`, run this script to verify both build systems stay in sync (see below)
 
+## Adding a Metric Requires an Entry in `scripts/metrics-config.yml`
+
+Any commit that registers a new metric group, or adds metrics to a file that builds a
+`std::vector<sm::metric_definition>` before calling `add_group`, **must** add an entry to
+`scripts/metrics-config.yml`. Otherwise the `Docs / Validate metrics` GitHub Action fails
+with:
+
+```
+[ERROR] new name found with no group <file> <line> defs.emplace_back(sm::make_gauge("...
+```
+
+`scripts/get_description.py` scans each `.cc` line by line and attributes every metric name
+to the last `add_group` it has seen on or before that line. A file that fills a vector first
+and calls `add_group(...)` at the end therefore reaches the metric names with no group known,
+and the config file is how that is declared:
+
+```yaml
+"utils/object_storage_metrics.cc":
+  groups:
+    "27": "object_storage"            # line number where the group takes effect, ZERO-BASED
+  params:                              # every loop variable used to build a metric name
+    lower_method_name: ["get", "post", "put", "delete", "head", "options", "trace", "connect", "patch"]
+    method_name: ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "PATCH"]
+```
+
+- **The line number is zero-based** — the parser's counter starts at 0, so config key `27`
+  is file line 28. Pick a line at or before the first metric (the `defs` declaration is a
+  good anchor) and confirm it, never compute it by hand alone.
+- **`params` is required for any name built from a variable**, e.g. a per-HTTP-method loop
+  using `format("total_{}_requests", lower_method_name)`. List every value the variable takes.
+- Line numbers are brittle: any commit that inserts lines above the anchor in a file listed
+  under `groups` shifts it. Re-run the validator after touching such a file.
+
+**Verify locally before pushing — the check takes under a second:**
+
+```bash
+ python3 scripts/get_description.py --validate -c scripts/metrics-config.yml   # exit 0 == clean
+```
+
+The workflow (`.github/workflows/docs-validate-metrics.yml`) runs on every PR touching any
+`*.cc`, and it stops at the first error, so one unregistered file hides the state of every
+file after it. Put the config entry in the same commit that adds the metrics.
+
 ## Build System Verification (Agent Review Checklist)
 
 When a PR touches build system files (`CMakeLists.txt`, `configure.py`,
