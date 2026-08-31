@@ -66,7 +66,7 @@ When the user says **"refine PR"**, perform the following sequence:
    - **Commit message**: subject follows `module: short description` format, blank line separates subject from body, body explains *why* not *what*, wrapped at ~72 chars.
    - **Single logical change**: if the commit message needs "and" or "also", it likely needs splitting.
    - **No unrelated changes**: formatting fixes, renames, include cleanups, or test skips that don't belong with the functional change must be in separate commits or removed.
-   - **Comments in code**: verify that added comments accurately describe what the code actually does — not what a previous iteration did or what was planned but not implemented.
+   - **Comments in code**: verify that added comments accurately describe what the code actually does — not what a previous iteration did or what was planned but not implemented. Then count them: delete every comment that restates the declaration below it, and move rationale, measurements and upstream comparisons to the commit message. See *Code Comments — Only What the Code Cannot Say* in `global-agents.instructions.md`.
    - **No unnecessary changes**: no gratuitous renames, no style-only changes mixed with logic, no dead code additions.
    - **Blank line hygiene**: scan each commit for `^+$` / `^-$` (blank line additions/removals). Remove any that aren't structurally required by new code.
 3. **Split commits** that contain unrelated changes (e.g., a commit that both changes storage logic and adds test skips should be split so each change goes to its logical home).

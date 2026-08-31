@@ -294,6 +294,29 @@ The last two both inflate a change's apparent value, and the reviewer who wrote 
 either one immediately. When a justification gets cut for these reasons, grep for the same text in
 the commit messages, code comments, and docs — one such paragraph had propagated to five places.
 
+### Code Comments — Only What the Code Cannot Say
+
+The code is the documentation. A comment earns its place only by saying something the declaration
+beside it does not.
+
+- **Never comment a self-evident declaration.** A named, typed data member documents itself:
+  `std::optional<data_dictionary::storage_options> keyspace_storage_options;` needs no comment,
+  and the four-line one written above it on 2026-08-31 was pure noise.
+- **Never restate the name.** Cut the sentence that paraphrases the function, enum or field it
+  sits above; keep only the sentence a reader could not have derived from the code.
+- **Comment the non-obvious**, in one or two lines: an invariant a caller must know, a guard that
+  makes a check race-free, an asymmetry that would otherwise read as a bug, a constant coupled to
+  another constant, or a fact that costs the reader a trip through three other files to learn.
+- **The rationale belongs in the commit message** — why the change was made, what was rejected,
+  measurements, and any comparison with an upstream implementation. A reader looking for *why this
+  changed* goes to the log; in the source it is noise every future reader pays for, and
+  comparisons with someone else's implementation date badly. On 2026-08-04 the S3 throttler had
+  reached 54% comment lines across two headers with 15 references to aws-sdk-cpp; the trim took
+  `aws_throttling_controller.hh` from 193 lines to 112.
+
+Audit comment volume the way you audit code churn: for every comment line a change adds, ask what
+it tells a reader that the line below it does not. If the answer is nothing, delete it.
+
 ### Pick the Shape That Carries the Idea
 
 If pseudocode, a table, or a diagram illustrates an idea better than prose does, use it. This is not
