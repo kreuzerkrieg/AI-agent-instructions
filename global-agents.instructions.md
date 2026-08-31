@@ -532,6 +532,26 @@ Check what policy an imported constant was tuned against, resize the constant to
 
 ---
 
+## Work Where You Were Invoked
+
+The session's primary working directory is where the work happens. Do not migrate a task to
+another checkout of the same project part-way through.
+
+- **A broken build in the working directory is a thing to fix, not a reason to relocate.** If it
+  cannot be fixed without a decision (a stale cache pinning a missing toolchain, a dir configured
+  for another branch), say so and ask. Relocating splits one task across two trees whose HEADs
+  you do not control.
+- **Someone else building the same target elsewhere is not permission to move.** On 2026-08-31 a
+  boost test failed to build in the session's directory, Ernest built it in another clone, and I
+  followed him there — then kept editing and testing in that clone after its HEAD moved off the
+  branch under test. Two "tests pass" results were measured against a binary with none of the
+  change in it. He asked: "why for no reason you jump to claude-scylladb?" The fix in the end was
+  one command in the original directory.
+- **A per-project clone-ownership rule is about not disturbing someone else's tree**, never an
+  instruction to move work out of the directory you were given.
+- If work genuinely must run elsewhere (only that machine has the hardware, only that clone has
+  the data), say so, name the reason, and keep *all* of the task there — never half in each.
+
 ## Terminal Command Rules
 
 > ## 🟦 ALWAYS START EVERY TERMINAL COMMAND WITH A LEADING SPACE 🟦

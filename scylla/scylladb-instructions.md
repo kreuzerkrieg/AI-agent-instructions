@@ -28,24 +28,36 @@ Data flow: `cql3`/`alternator` → `storage_proxy` → `messaging_service` (RPC)
 
 ## Which Clone to Work In
 
-Two directories, one repository — they are **linked git worktrees**, so refs are shared but each
-has its own HEAD, index and working tree.
+Several directories, one repository — they are **linked git worktrees**, so refs are shared but
+each has its own HEAD, index and working tree. `git worktree list` enumerates them; there are more
+than the two named below (e.g. `~/Development/scylladb_1`).
+
+**The session's primary working directory wins.** Whatever directory the session was invoked in is
+where checkouts, builds, edits and test runs happen, and the task stays there start to finish. See
+*Work Where You Were Invoked* in `global-agents.instructions.md`. The table below says whose tree
+not to disturb — it is not an instruction to move work out of the directory you were given.
 
 | Directory | Owner | What the agent may do |
 |-----------|-------|-----------------------|
-| `~/Development/scylladb` | **Ernest** | Read only. Never change its checked-out branch or working tree. |
-| `~/Development/claude-scylladb` | **the agent** | Anything: `checkout`, `fetch`, `branch`, `reset`, build, dirty tree. |
+| the session's working directory | **the agent, for this session** | Anything, unless Ernest says otherwise. |
+| `~/Development/scylladb` | **Ernest** | Default to read-only — but this is a default, not a prohibition. He routinely drives work here (2026-08-21: "it is not, unless I say so"). Do not raise the restriction as a caveat on work he has just asked for. |
+| `~/Development/claude-scylladb` | **the agent** | Anything: `checkout`, `fetch`, `branch`, `reset`, build, dirty tree. Use it when the session has no working directory of its own, not as a fallback when the current one misbehaves. |
 
 Rules:
 
 - Any command that writes to HEAD, the index or the working tree — `checkout`, `switch`, `reset`,
-  `stash`, `rebase`, `cherry-pick`, `clean`, a build — runs with `cd ~/Development/claude-scylladb`.
+  `stash`, `rebase`, `cherry-pick`, `clean`, a build — runs in the session's working directory.
+- **Never let one task straddle two clones.** If a build breaks there, fix it or ask; do not
+  relocate. And if a build or test ever does run in a different tree, verify the binary contains
+  the change under test (`strings`, a marker symbol) before believing any result — a clone whose
+  HEAD you do not control can silently be on another branch.
 - Reading code at another revision needs **no checkout at all**: use `git show <sha>:<path>`,
   `git diff <a>..<b> -- <path>`, `git log -S`. Prefer these for PR and commit-series review.
-- Fetching is safe from either directory (refs are shared), but do it from the agent's clone so
-  the branch is ready to check out there. A branch already checked out in one worktree cannot be
-  checked out in the other — if git refuses a checkout, run `git worktree list` before debugging
-  anything else.
+- Fetching is safe from any of them (refs are shared), but do it from the directory you are working
+  in so the branch is ready to check out there. A branch already checked out in one worktree cannot
+  be checked out in another — if git refuses a checkout, run `git worktree list` before debugging
+  anything else. A rebase Ernest runs in one worktree moves the shared branch ref, so a sibling
+  worktree can show a different SHA for the same branch name than `origin` has.
 - If Ernest's HEAD was moved anyway, restore the original branch and say so explicitly.
 
 ## Build System
