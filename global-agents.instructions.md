@@ -552,6 +552,28 @@ another checkout of the same project part-way through.
 - If work genuinely must run elsewhere (only that machine has the hardware, only that clone has
   the data), say so, name the reason, and keep *all* of the task there — never half in each.
 
+### Checking Out Other Code — Ask Only When State Would Be At Risk
+
+Ernest, 2026-08-31: *"if you see uncommitted changes or you see changes are not pushed, and you
+want to checkout some code you need for a task, ask me first, otherwise you are free to checkout
+whatever you want without asking me."*
+
+Run both checks before any `checkout` / `switch` / `reset` that changes what is in the tree:
+
+```bash
+ git status --porcelain | grep -v '^??'      # tracked files modified or staged
+ git rev-list HEAD --not --remotes           # commits on this branch that no remote has
+```
+
+- **Either one non-empty → ask first**, naming what is at risk (the modified files, or the count of
+  unpushed commits). Unpushed commits exist nowhere else, and a rewritten or discarded branch takes
+  them with it.
+- **Both empty → check out freely, no permission needed.** Do not narrate it or ask.
+- Scope the unpushed check to `HEAD`, not `--branches`: across all local branches this repo reports
+  hundreds of commits from old and unrelated work, which would make the check always say "ask".
+- Untracked files alone (`??`) are not a reason to ask — a checkout leaves them in place. Mention
+  one only if it would collide with the files being checked out.
+
 ## Terminal Command Rules
 
 > ## 🟦 ALWAYS START EVERY TERMINAL COMMAND WITH A LEADING SPACE 🟦
