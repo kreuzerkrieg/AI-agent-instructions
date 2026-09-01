@@ -552,6 +552,35 @@ another checkout of the same project part-way through.
 - If work genuinely must run elsewhere (only that machine has the hardware, only that clone has
   the data), say so, name the reason, and keep *all* of the task there — never half in each.
 
+### Start Every Task on a Fresh Branch off Upstream
+
+Ernest, 2026-09-01: *"you cant start doing a task on existing branch carrying changes from
+another task ... you have to start a task on fresh master rebased on upstream."*
+
+**Before the first edit of a new task, branch from the freshly fetched upstream default branch.**
+Never start work on whatever branch the working directory happens to be sitting on. A feature
+branch carries another task's commits, so anything built on top is unreviewable on its own,
+cannot become its own PR, and silently depends on work that may never merge.
+
+```bash
+ git fetch upstream
+ git switch -c <initials>/<topic> upstream/master
+```
+
+- **Check the branch before editing, not after.** `git branch --show-current` costs nothing.
+  This has been corrected more than once, each time only after the work was already written
+  onto the wrong branch — the check is worthless as an afterthought.
+- The tree must be clean before switching — see *Checking Out Other Code* below for the two
+  checks and when to ask.
+- **If files were already changed on the wrong branch, move them; do not commit them there.**
+  Save the tracked diff (`git diff > /tmp/wip.patch`), restore those files
+  (`git checkout -- <paths>`), create the branch, then `git apply /tmp/wip.patch`. Untracked
+  files survive a branch switch untouched, so they need no handling.
+- **Never `git stash -u` to do this.** In a working clone the untracked set includes the user's
+  own scratch directories and build leftovers, and `-u` sweeps all of them in.
+- The one exception is a task that genuinely extends unmerged work: branch from that work's
+  branch, and say so explicitly rather than letting it be inferred.
+
 ### Checking Out Other Code — Ask Only When State Would Be At Risk
 
 Ernest, 2026-08-31: *"if you see uncommitted changes or you see changes are not pushed, and you
