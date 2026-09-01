@@ -930,3 +930,15 @@ captured every change under a message describing one of them.
 **Correct approach:** `git checkout HEAD -- <file>`, or `git show <sha>:<file> > <file>`
 when you want a specific commit's version. And treat a newline between steps exactly like
 the `;` in the entry above — neither one stops on failure. Chain with `&&`, or `set -e`.
+
+### Batching the session-start pull and read makes step 2 load stale instructions (2026-09-01)
+
+Ran mandatory step 1 (`git pull --rebase`) and step 2 (`cat scylladb-instructions.md`) as two
+parallel tool calls in one message. The pull fast-forwarded the repo — reflog says
+`pull --rebase: Fast-forward` — and the `cat` read the pre-pull file, so half a session ran on
+instructions two commits old, missing the rewritten working-directory rules and a whole new
+section. The 72KB output was also spilled to a preview file that was itself short of the source,
+and I treated it as a complete read.
+**Correct approach:** run step 1 to completion, *then* step 2 in a separate call — never batch
+them. And treat a truncated or spilled tool output as a failed read: compare the line count
+against the source before believing a file is loaded.
