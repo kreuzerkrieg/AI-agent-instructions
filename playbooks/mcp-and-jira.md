@@ -40,6 +40,20 @@ Once connected, the agent can:
   the user to check MCP server status in CLion settings. See *Deferred tools load through ToolSearch*
   in the core instructions for what reading this wrong once cost.
 
+### `contentFormat` decides the markup language — do not mix them
+`addCommentToJiraIssue` and `editJiraIssue` take a `contentFormat` of `markdown` or `adf`. There is
+**no wiki-markup option**, so Jira's own syntax reaches the page verbatim:
+
+- `markdown` means real Markdown: `###` headings, `` `code` ``, `_italics_`, `*` bullets.
+- Jira wiki markup — `h3.`, `{{monospace}}`, `{color}` — is **not** converted. It renders as
+  literal text.
+
+On 2026-09-03 a design comment on SCYLLADB-3961 went up with `contentFormat: markdown` but written
+in wiki markup. Every `h3.` printed as text and every `{{symbol}}` kept its braces; Ernest fixed the
+headings by hand before pointing it out. When correcting a posted comment, pass its `commentId` to
+update in place rather than adding a second one — and read the current body first, since the user
+may already have edited it.
+
 ### Query notes
 - The Jira `cloudId` is `scylladb.atlassian.net`.
 - Search with `searchJiraIssuesUsingJql`, and pass a **narrow `fields` list**. The default pulls
